@@ -5,9 +5,9 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile } from "herdr";
+import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify } from "herdr";
 import { mkdir } from "fs/promises";
-import { loadStore, storePaths, visibleSpaces, activeWorkspace, parseStore } from "./lib.js";
+import { loadStore, storePaths, visibleSpaces, activeWorkspace, parseStore, decideArrivals, joinSpace, updateStore } from "./lib.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -61,11 +61,14 @@ export default class Spaces extends View {
     // worktree appears under its repo instead of jumping there.
     this.shown = new Set(spaces().map((s) => s.id));
     this.born = {};
+    this.decided = new Set(this.shown); // spaces already considered for joining the active workspace
     this.pressed = null;
     this.over = null;
     this.machines = [];
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.store = parseStore(undefined).store;
+    this.loaded = false; // the store file was read at least once
+    this.startedAt = Date.now();
     this.followWorkspaces(cx);
     this.refreshMachines(cx);
     cx.timer.every(15000, cx => this.refreshMachines(cx));
@@ -81,6 +84,7 @@ export default class Spaces extends View {
       await mkdir(dir, { recursive: true });
       for (;;) {
         this.store = (await loadStore(readTextFile, file)).store;
+        this.loaded = true;
         cx.notify();
         await watchFolder(dir);
       }
@@ -91,9 +95,26 @@ export default class Spaces extends View {
     const now = Date.now();
     const sp = spaces();
     for (const s of sp) if (!this.shown.has(s.id)) this.born[s.id] ??= now;
+    const workspace = shared("workspaces.active");
+    const joined = decideArrivals({ store: this.store, activeId: workspace, spaces: sp, seen: this.decided, loaded: this.loaded, startedAt: this.startedAt, now });
+    this.decided = joined.seen;
+    for (const id of joined.adopt) void this.join(id, workspace);
     const due = this.due(now, sp, panes());
     if (due.size) this.refreshGit(due, cx);
     if (sp.some((s) => !this.shown.has(s.id))) cx.notify();
+  }
+
+  // A space made here while a workspace is active joins it, or it would land in Default and vanish from the list. The fresh file is checked again so another window's assignment stands.
+  async join(space, workspace) {
+    let result;
+    try {
+      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(appHome()).file, (store) => ({
+        store: joinSpace(store, space, workspace),
+      }));
+    } catch (e) {
+      result = { error: e.message ?? String(e) };
+    }
+    if (result.error) notify({ title: "Could not add the space to the workspace", body: result.error, level: "error" });
   }
 
   // Places whose git could have changed: new ones (a new space, a cd), where a

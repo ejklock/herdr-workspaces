@@ -14,6 +14,11 @@ import {
   updateStore,
   newWorkspaceId,
   storeFromShared,
+  adoptArrivals,
+  decideArrivals,
+  inDefault,
+  joinSpace,
+  RESTORE_MS,
 } from "./lib.js";
 
 // An in-memory file with the app's optimistic write: a stale snapshot is refused.
@@ -357,4 +362,123 @@ test("store file: an invalid name reports the reason and attempts no write", asy
   const result = await updateStore(file, "/p", (s) => createWorkspace(s, { name: "   ", icon: "layers", color: "accent" }, "w2"));
   assert.ok(result.error);
   assert.equal(attempts, 0);
+});
+
+// A window's view of a space as the app lists it.
+const live = (id, active = false, machine = null) => ({ id, machine, active });
+const joinStore = storeOf([workspace("w1", "Acme")], { old: "w1" });
+
+test("adoptArrivals assigns a new active unassigned space to the active workspace", () => {
+  const out = adoptArrivals(joinStore, "w1", [live("old"), live("new", true)], new Set(["old"]));
+  assert.deepEqual(out.adopt, ["new"]);
+});
+
+test("adoptArrivals takes nothing while Default is active", () => {
+  assert.deepEqual(adoptArrivals(joinStore, undefined, [live("new", true)], new Set()).adopt, []);
+});
+
+test("adoptArrivals takes nothing for a stale active workspace id", () => {
+  assert.deepEqual(adoptArrivals(joinStore, "gone", [live("new", true)], new Set()).adopt, []);
+});
+
+test("adoptArrivals leaves new spaces that are not the window's active one", () => {
+  const out = adoptArrivals(joinStore, "w1", [live("m/a", false, "m"), live("m/b", false, "m")], new Set());
+  assert.deepEqual(out.adopt, []);
+});
+
+test("adoptArrivals leaves a new space another window already assigned", () => {
+  const store = storeOf([workspace("w1", "Acme"), workspace("w2", "Other")], { fresh: "w2" });
+  assert.deepEqual(adoptArrivals(store, "w1", [live("fresh", true)], new Set()).adopt, []);
+});
+
+test("adoptArrivals takes a new space whose assignment points at a deleted workspace", () => {
+  const store = storeOf([workspace("w1", "Acme")], { fresh: "gone" });
+  assert.deepEqual(adoptArrivals(store, "w1", [live("fresh", true)], new Set()).adopt, ["fresh"]);
+});
+
+test("adoptArrivals never takes a space present at the start", () => {
+  const out = adoptArrivals(joinStore, "w1", [live("start", true)], new Set(["start"]));
+  assert.deepEqual(out.adopt, []);
+});
+
+test("adoptArrivals takes a remote new active space under its machine-prefixed id", () => {
+  const out = adoptArrivals(joinStore, "w1", [live("m/7", true, "m")], new Set());
+  assert.deepEqual(out.adopt, ["m/7"]);
+});
+
+test("adoptArrivals decides an arrival once: selecting it later does not take it", () => {
+  const first = adoptArrivals(joinStore, "w1", [live("m/a", false, "m")], new Set());
+  const later = adoptArrivals(joinStore, "w1", [live("m/a", true, "m")], first.seen);
+  assert.deepEqual(later.adopt, []);
+});
+
+test("adoptArrivals does not change the seen set it was given", () => {
+  const seen = new Set();
+  adoptArrivals(joinStore, "w1", [live("new", true)], seen);
+  assert.equal(seen.size, 0);
+});
+
+// Arrivals as the view sees them: `at` ms after it started.
+const START = 1_000_000;
+const decide = (spaces, { at, seen = new Set(), loaded = true, store = joinStore, activeId = "w1" }) =>
+  decideArrivals({ store, activeId, spaces, seen, loaded, startedAt: START, now: START + at });
+
+test("decideArrivals never takes spaces restored in the first tick, the active one included", () => {
+  const out = decide([live("a", true), live("b")], { at: 250 });
+  assert.deepEqual(out.adopt, []);
+  assert.deepEqual([...out.seen].sort(), ["a", "b"]);
+});
+
+test("decideArrivals never takes a space restored in a later tick of the window", () => {
+  const first = decide([live("a")], { at: 100 });
+  const later = decide([live("a"), live("m/b", true, "m")], { at: RESTORE_MS - 1, seen: first.seen });
+  assert.deepEqual(later.adopt, []);
+  assert.ok(later.seen.has("m/b"));
+});
+
+test("decideArrivals takes the active unassigned space that arrives after the window", () => {
+  assert.deepEqual(decide([live("old"), live("new", true)], { at: RESTORE_MS + 1, seen: new Set(["old"]) }).adopt, ["new"]);
+});
+
+test("decideArrivals takes the first space of a window that started with none", () => {
+  assert.deepEqual(decide([live("first", true)], { at: RESTORE_MS + 5000 }).adopt, ["first"]);
+});
+
+test("decideArrivals treats an arrival exactly at the limit as restored", () => {
+  assert.deepEqual(decide([live("x", true)], { at: RESTORE_MS }).adopt, []);
+});
+
+test("decideArrivals treats an arrival just past the limit as created", () => {
+  assert.deepEqual(decide([live("x", true)], { at: RESTORE_MS + 1 }).adopt, ["x"]);
+});
+
+test("decideArrivals waits for the store: past the window, not loaded, nothing taken or marked decided", () => {
+  const waiting = decide([live("x", true)], { at: RESTORE_MS + 1, loaded: false });
+  assert.deepEqual(waiting.adopt, []);
+  assert.equal(waiting.seen.size, 0);
+  assert.deepEqual(decide([live("x", true)], { at: RESTORE_MS + 2, seen: waiting.seen }).adopt, ["x"]);
+});
+
+test("decideArrivals does not change the seen set it was given", () => {
+  const seen = new Set();
+  decide([live("x", true)], { at: 10, seen });
+  assert.equal(seen.size, 0);
+});
+
+test("inDefault: a space assigned to a deleted workspace is in Default, one in a live workspace is not", () => {
+  const store = storeOf([workspace("w1", "Acme")], { gone: "ghost", kept: "w1" });
+  assert.equal(inDefault(store, "gone"), true);
+  assert.equal(inDefault(store, "kept"), false);
+  assert.equal(inDefault(store, "never"), true);
+});
+
+test("joinSpace on the fresh store assigns a space whose workspace was deleted, as adoptArrivals does", () => {
+  const store = storeOf([workspace("w1", "Acme")], { fresh: "gone" });
+  assert.equal(joinSpace(store, "fresh", "w1").assign.fresh, "w1");
+  assert.deepEqual(adoptArrivals(store, "w1", [live("fresh", true)], new Set()).adopt, ["fresh"]);
+});
+
+test("joinSpace leaves a space another window put in a live workspace", () => {
+  const store = storeOf([workspace("w1", "Acme"), workspace("w2", "Other")], { fresh: "w2" });
+  assert.equal(joinSpace(store, "fresh", "w1"), store);
 });

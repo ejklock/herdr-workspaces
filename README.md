@@ -9,6 +9,7 @@ A Herdr app layout and mod (`workspaces`) that groups your spaces into workspace
 - Workspaces with a name, an icon (ten to choose from) and a color (six); create, edit and delete them from the footer selector.
 - The spaces list and the agents list both show only the active workspace; Default shows the spaces in no workspace.
 - "Move to workspace…" in a space's right-click menu.
+- A space you create in a window while a workspace is active joins that workspace, so it stays in the list (with Default active it stays in Default). Spaces that arrive otherwise, such as a machine reconnecting, are not moved.
 - Spaces on other herdr-core machines are grouped under a header per machine, so each company can keep its own core (`hc machine add --via 'sh -c' --name <name> --session <session>`).
 - Agent status (working, blocked, done, idle), sub-agents, git branch and ahead/behind next to each space, a status bar with machine, branch and agent counts.
 - The workspace store is one JSON file shared by every window of the app home.

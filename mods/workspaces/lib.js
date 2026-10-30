@@ -158,13 +158,52 @@ export function activeWorkspace(store, activeId) {
 }
 
 /** True when the space belongs to no workspace the store holds; an assignment to a deleted workspace counts as none. */
-const inDefault = (store, spaceId) => !store.workspaces.some((w) => w.id === store.assign[spaceId]);
+export const inDefault = (store, spaceId) => !store.workspaces.some((w) => w.id === store.assign[spaceId]);
+
+/** Puts a space in the workspace unless it already sits in a live one; the same Default rule `adoptArrivals` applies. */
+export function joinSpace(store, spaceId, workspaceId) {
+  return inDefault(store, spaceId) ? assignSpace(store, spaceId, workspaceId) : store;
+}
+
+// How long after the view starts the app is still restoring the window's spaces. Measured in a scratch
+// relaunch with five spaces, two on an attached machine: 7 relaunches, every space listed within
+// 0.62-0.66 s, the attached machine a local core, not ssh. 5 s leaves a wide margin over that, but how a
+// slower machine (ssh) behaves was not measured; the margin is an inference.
+// Two costs: a space made in the first 5 s is not taken; and a machine that takes longer than 5 s to
+// restore has its restored space taken and moved out of Default for good, when that space is this window's
+// active one, is in no workspace, and a workspace is active.
+export const RESTORE_MS = 5000;
+
+/**
+ * Herdr gives a mod no signal that a restore finished, so spaces arriving within RESTORE_MS of the view's
+ * start are the window's starting set (never taken, whichever is active); later ones are decided by
+ * `adoptArrivals`, but only once the store has loaded, since before that every space would look
+ * unassigned. Until then they stay undecided.
+ */
+export function decideArrivals({ store, activeId, spaces, seen, loaded, startedAt, now }) {
+  if (now - startedAt <= RESTORE_MS) return { adopt: [], seen: new Set([...seen, ...spaces.map((s) => s.id)]) };
+  if (!loaded) return { adopt: [], seen: new Set(seen) };
+  return adoptArrivals(store, activeId, spaces, seen);
+}
 
 /** The spaces the sidebar lists: only those in no workspace for Default, else only the active workspace's. */
 export function visibleSpaces(store, activeId, spaces) {
   const active = activeWorkspace(store, activeId);
   if (!active) return spaces.filter((s) => inDefault(store, s.id));
   return spaces.filter((s) => store.assign[s.id] === active.id);
+}
+
+/**
+ * Decides the spaces not in `seen` once, at first sight. A space joins the active workspace only if it is
+ * this window's active space (what creating one here does; a reconnecting machine's spaces and another
+ * window's are not), sits in no workspace, and a workspace is active. Gives { adopt: ids, seen: the
+ * enlarged set }; a space that is not taken is never taken later.
+ */
+export function adoptArrivals(store, activeId, spaces, seen) {
+  const arrived = spaces.filter((s) => !seen.has(s.id));
+  const target = activeWorkspace(store, activeId);
+  const adopt = target ? arrived.filter((s) => s.active && inDefault(store, s.id)).map((s) => s.id) : [];
+  return { adopt, seen: new Set([...seen, ...arrived.map((s) => s.id)]) };
 }
 
 /** The agents the sidebar lists: those whose space visibleSpaces would keep. */
