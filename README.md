@@ -26,9 +26,10 @@ bin/install ~/.config/herdr-app
 The script copies `mods/workspaces` (without tests and editor files) and `layouts/workspaces.json` into
 the app home; Herdr draws a mod's icons and reloads its edits only from real files, not links. Rerun it
 after each change: Herdr picks the edit up in the open window. The copy carries a `.installed-from` file
-naming this repository. A rerun replaces its own earlier copy or an earlier link into this repository
-and refuses anything else (another folder, a foreign link, a layout file it did not make), checking both
-targets before writing either.
+naming this repository. The layout's side-panel Files block uses the `my-files` mod when the app home
+already has a `mods/my-files` folder, and Herdr's `files` otherwise. A rerun replaces its own earlier
+copy or an earlier link into this repository and refuses anything else (another folder, a foreign link,
+a layout file it did not make), checking both targets and the source layout before writing either.
 
 ## Usage
 

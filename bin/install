@@ -52,6 +52,19 @@ check_layout() {
   return 1
 }
 
+# The side-panel Files block names one mod and Herdr has no fallback, so the choice is made at install.
+# Only the block's own "mod" value is rewritten; the anchor must match exactly once, and an unreadable
+# source counts as no match.
+source_layout="$repo/layouts/workspaces.json"
+anchor='"mod": "files"'
+
+check_anchor() {
+  count=$(grep -cF "$anchor" "$source_layout" 2>/dev/null || true)
+  [ "$count" = 1 ] && return 0
+  echo "refusing: $source_layout must contain $anchor exactly once" >&2
+  return 1
+}
+
 wanted() {
   case $1 in
     *.test.js | gpui-kit.d.ts | jsconfig.json) return 1 ;;
@@ -86,12 +99,14 @@ copy_mod() {
 }
 
 copy_layout() {
+  files_mod=files
+  [ -d "$home/mods/my-files" ] && files_mod=my-files
   if [ -L "$layout_target" ]; then rm "$layout_target"; fi
-  cp "$repo/layouts/workspaces.json" "$layout_target"
-  echo "copied $layout_target"
+  sed "s/\"mod\": \"files\"/\"mod\": \"$files_mod\"/" "$source_layout" > "$layout_target"
+  echo "copied $layout_target (Files mod: $files_mod)"
 }
 
-check_mod && check_layout || exit 1
+check_mod && check_layout && check_anchor || exit 1
 mkdir -p "$home/mods" "$home/layouts"
 copy_mod
 copy_layout
