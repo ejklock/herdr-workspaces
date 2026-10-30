@@ -6,3 +6,8 @@ mods/editor/editor/
 mods/editor/format/
 mods/editor/*.d.ts
 mods/editor/jsconfig.json
+mods/my-files/*.js
+!mods/my-files/main.js
+mods/my-files/files/
+mods/my-files/*.d.ts
+mods/my-files/jsconfig.json

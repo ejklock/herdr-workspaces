@@ -5,8 +5,9 @@
       "min_blocking_severity": "error"
     },
     "ignore": [
-      "mods/editor"
+      "mods/editor",
+      "mods/my-files"
     ],
-    "ignore_reason": "mods/editor holds the tsc build output and the mod manifest the app reads; the sources are in src/editor"
+    "ignore_reason": "mods/editor and mods/my-files hold the tsc build output and the mod manifest the app reads; the sources are in src/editor and src/files"
   }
 }

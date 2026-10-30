@@ -1,0 +1,79 @@
+#!/bin/sh
+# Copies this repository's built my-files mod into a Herdr app home. Herdr draws a mod's SVGs and
+# reloads its edits only from real files, so a link would not work; rerun after each build.
+# Usage: bin/install-files <app home>
+set -eu
+
+if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+  echo "usage: bin/install-files <app home>" >&2
+  exit 2
+fi
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+home=$(cd "$1" && pwd -P)
+source_dir="$repo/mods/my-files"
+target="$home/mods/my-files"
+marker=.installed-from
+
+if [ ! -f "$source_dir/files/main.js" ]; then
+  echo "the build output $source_dir/files/main.js is missing: run npm run build first" >&2
+  exit 1
+fi
+
+# The target may be absent, an earlier link into this repository, or this repository's own copy.
+check_target() {
+  if [ -L "$target" ]; then
+    case $(readlink "$target") in
+      "$repo"/*) return 0 ;;
+    esac
+    echo "refusing $target: a symlink pointing elsewhere" >&2
+    return 1
+  fi
+  [ -e "$target" ] || return 0
+  # A marker that is a link proves nothing and would send the marker write outside the target.
+  if [ ! -L "$target/$marker" ] && [ -f "$target/$marker" ] && [ "$(cat "$target/$marker")" = "$repo" ]; then return 0; fi
+  echo "refusing $target: not a copy made from $repo" >&2
+  return 1
+}
+
+wanted() {
+  case $1 in
+    *.test.js | *.d.ts | jsconfig.json) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# A link inside the copy would send a write outside the target, so it is removed before writing.
+unlink_if_link() {
+  if [ -L "$1" ]; then rm "$1"; fi
+}
+
+# Files are overwritten in place so Herdr's watcher sees a change; files gone from the source are removed.
+sync_folder() {
+  from=$1
+  to=$2
+  unlink_if_link "$to"
+  mkdir -p "$to"
+  for file in "$to"/*; do
+    [ -f "$file" ] || [ -L "$file" ] || continue
+    name=${file##*/}
+    if [ ! -f "$from/$name" ] || ! wanted "$name"; then rm "$file"; fi
+  done
+  for file in "$from"/*; do
+    [ -f "$file" ] || continue
+    name=${file##*/}
+    wanted "$name" || continue
+    unlink_if_link "$to/$name"
+    cp "$file" "$to/"
+  done
+}
+
+check_target || exit 1
+mkdir -p "$home/mods"
+if [ -L "$target" ]; then rm "$target"; fi
+mkdir -p "$target"
+# The marker goes first so a copy that fails partway is still recognised as ours on the next run.
+printf '%s' "$repo" > "$target/$marker"
+sync_folder "$source_dir" "$target"
+sync_folder "$source_dir/files" "$target/files"
+echo "copied $target"

@@ -5,8 +5,9 @@
   "description": "An editable file editor pane for the Herdr desktop app",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.files.json",
+    "install:files": "npm run build && bin/install-files \"$HOME/.config/herdr-app\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.files.json --noEmit && tsc -p tsconfig.test.json",
     "test": "node --test",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout && se-gates qg coverage-receipt"
   },

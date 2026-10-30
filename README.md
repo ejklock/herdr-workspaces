@@ -27,14 +27,17 @@ The pane's text is replaced only by text a save just wrote, and only when it dif
 
 ```
 npm install
-npm run build        # emits mods/editor/editor/*.js and mods/editor/format/*.js from src; mods/editor/main.js re-exports the entry
+npm run build        # emits mods/editor/editor/*.js and mods/editor/format/*.js (tsconfig.json), and mods/my-files/files/*.js (tsconfig.files.json); each mod's main.js re-exports its entry
 npm run typecheck    # src against the app's .d.ts, tests against @types/node
 npm test
 npm run coverage     # same tests, writes coverage/lcov.info for src and stamps the gate's receipt
 ln -s "$PWD/mods/editor" ~/.config/herdr-app/mods/editor
+npm run install:files  # builds, then copies mods/my-files into ~/.config/herdr-app/mods/my-files
 ```
 
-`tsconfig.json` reads the app's `herdr.d.ts` and `gpui-kit.d.ts` in place from `~/.config/herdr-app` (an absolute path; adjust it for another home). The app rewrites those files, so they are never copied.
+my-files is installed by copy, not by link: Herdr draws a mod's SVGs only from real files, so a linked my-files shows its tree with no icons. `bin/install-files <app home>` (what `npm run install:files` runs) writes only `<app home>/mods/my-files`, marks it with `.installed-from` (this repo's path), replaces an earlier link into this repo, and refuses a link pointing elsewhere, a folder it did not make, and a `.installed-from` that is itself a link (a link cannot prove ownership, so it is never written through). Rerun `npm run install:files` after each build to update the copy. The `editor` mod has no assets and stays linked.
+
+`tsconfig.json` and `tsconfig.files.json` read the app's `herdr.d.ts` and `gpui-kit.d.ts` in place from `~/.config/herdr-app` (an absolute path; adjust it for another home). The app rewrites those files, so they are never copied.
 
 A rebuild through the link did not reload an already open pane when observed; close and reopen the pane to run new code.
 
@@ -74,3 +77,27 @@ The header's "Open in Fresh" button (and `herdr-app do editor.fresh`, which take
 3. Press Cmd+S.
 4. The pane shows the formatted text and the dot in the header goes away.
 5. Run `cat /abs/project/src/file.ts`: it holds the formatted text.
+
+## The my-files mod
+
+`my-files` is the shipped Files mod's lazy tree (folders on demand, git status marks A, M, D and U, a folder watch, a 10 s refresh, at most 500 entries per folder and 5,000 in all) with one change: a click on a file opens it in the editor instead of a preview. Source: `src/files/` (the click and location rules and the listing and git parsing are in `src/files/tree.ts`, free of the app's modules); output: `mods/my-files/files/*.js`, behind the committed `mods/my-files/main.js`. The four icons and `mod.json` are copied from the shipped mod, with asset paths under `mods/my-files/`. Install it with `npm run install:files`, as shown under Build and install.
+
+Click rules:
+
+- A local file that an editor pane of the focused tab already shows: that pane gets focus.
+- Otherwise a new editor pane opens to the right of the focused pane, also when the focused pane is an editor showing another file. No existing editor pane is ever closed, replaced or edited.
+- Focus on a layout terminal block (no model pane to split): the file opens as a new tab.
+- A file on another machine always opens a new pane with `on` set, and shows read-only in the editor.
+- The tree keeps its folder and machine while an editor pane has focus; a terminal pane's folder replaces it.
+
+Which pane shows which file is read from the editor's `shared("editor.claims")`. The layout wiring (putting `my-files` in the `workspaces` layout in place of `files`) belongs to the herdr-workspaces project and is not done here; until then open it with `herdr-app do pane.split --direction right --mod my-files`.
+
+## Owner-run check of the my-files click
+
+1. Run `npm run install:files`, then open a pane: `herdr-app do pane.split --direction right --mod my-files`. The tree shows the focused terminal's folder with folder and file icons (if the icons are missing, the mod is a link, not a copy, which is the proven cause: run `npm run install:files`, which replaces a link with a real folder).
+2. Click a file: an editor pane opens to the right of the pane that had focus, showing the file.
+3. Click the tree, then the same file again: the editor pane gets focus, no second pane opens.
+4. Click another file: a second editor pane opens right of the focused pane; the first stays.
+5. With an editor pane focused, look at the tree: it still shows the same folder.
+6. With my-files placed in a layout block (not as a split pane), click a file while a layout terminal block has focus: the file opens in a new tab. A my-files split pane may take focus on the click, so this path is not reached there.
+7. Edit text in an editor pane without saving, then click files in the tree: the edited pane is untouched.
