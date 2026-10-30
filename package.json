@@ -1,6 +1,28 @@
 {
   "name": "herdr-workspaces",
   "private": true,
+  "description": "A Herdr app layout and mod: a workspace switcher that groups spaces by company or client, across several herdr-core machines.",
+  "keywords": [
+    "herdr",
+    "herdr-app",
+    "herdr-layout",
+    "herdr-mod",
+    "workspaces",
+    "workspace-switcher",
+    "terminal",
+    "ai-agents",
+    "coding-agents"
+  ],
+  "license": "MIT",
+  "author": "Evaldo Klock",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ejklock/herdr-workspaces.git"
+  },
+  "homepage": "https://github.com/ejklock/herdr-workspaces#readme",
+  "bugs": {
+    "url": "https://github.com/ejklock/herdr-workspaces/issues"
+  },
   "type": "module",
   "scripts": {
     "test": "node --test"
