@@ -1,0 +1,12 @@
+{
+  "quality": {
+    "mode": "blocking",
+    "thresholds": {
+      "min_blocking_severity": "error"
+    },
+    "ignore": [
+      "mods/editor"
+    ],
+    "ignore_reason": "mods/editor holds the tsc build output and the mod manifest the app reads; the sources are in src/editor"
+  }
+}

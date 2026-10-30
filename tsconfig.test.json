@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"], "rootDir": ".", "noEmit": true, "exactOptionalPropertyTypes": true, "paths": {} },
+  "files": [],
+  "include": ["tests/**/*.ts"],
+  "exclude": []
+}

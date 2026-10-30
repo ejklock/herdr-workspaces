@@ -1,0 +1,4 @@
+node_modules
+mods/editor/*.js
+mods/editor/*.d.ts
+mods/editor/jsconfig.json

@@ -1,0 +1,67 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { routePane, type Claims } from "../../src/editor/routing.ts";
+
+const me = { token: "me", path: "/a.txt" };
+const route = (open: string[], claims: Claims, current?: string, proof?: string) =>
+  routePane({ open, claims, token: me.token, path: me.path, current, proof });
+
+describe("routing", () => {
+  it("keeps the current pane while it is open and claimed with this token", () => {
+    assert.equal(route(["p1", "p2"], { p1: me }, "p1"), "p1");
+  });
+
+  it("keeps the current pane although another token claims a second pane for the same path", () => {
+    const claims: Claims = { p1: me, p2: { token: "other-copy", path: me.path } };
+    assert.equal(route(["p1", "p2"], claims, "p1"), "p1");
+  });
+
+  it("releases the current pane when it is closed and ignores claims of closed panes", () => {
+    assert.equal(route(["p2"], { p1: me, p3: { token: "x", path: "/a.txt" } }, "p1"), "p2");
+    assert.equal(route(["p2", "p4"], { p1: me }, "p1"), undefined);
+  });
+
+  it("releases the current pane when another token claimed it", () => {
+    assert.equal(route(["p1", "p2"], { p1: { token: "x", path: "/b.txt" }, p2: { token: "y", path: "/c.txt" } }, "p1"), undefined);
+  });
+
+  it("takes a focused pane that is unclaimed or claimed with this token", () => {
+    assert.equal(route(["p1", "p2"], { p1: { token: "x", path: "/b.txt" } }, undefined, "p2"), "p2");
+    assert.equal(route(["p1", "p2"], { p1: me, p2: { token: "x", path: "/b.txt" } }, undefined, "p1"), "p1");
+  });
+
+  it("does not take a focused pane another token claims for a different path", () => {
+    assert.equal(route(["p1", "p2"], { p1: { token: "x", path: "/b.txt" } }, undefined, "p1"), undefined);
+  });
+
+  it("does not take a focused pane that is not an open editor pane", () => {
+    assert.equal(route(["p1"], {}, undefined, "gone"), undefined);
+  });
+
+  it("takes the one open pane claimed with this path after a rebuild", () => {
+    assert.equal(route(["p1", "p2"], { p1: { token: "old", path: "/a.txt" }, p2: { token: "x", path: "/b.txt" } }), "p1");
+  });
+
+  it("prefers the stale-claimed pane over an unclaimed one", () => {
+    assert.equal(route(["p1", "p2"], { p1: { token: "old", path: "/a.txt" } }), "p1");
+  });
+
+  it("takes none for two panes claimed with this path until a focus proof", () => {
+    const claims: Claims = { p1: { token: "old", path: "/a.txt" }, p2: { token: "older", path: "/a.txt" } };
+    assert.equal(route(["p1", "p2"], claims), undefined);
+    assert.equal(route(["p1", "p2"], claims, undefined, "p2"), "p2");
+  });
+
+  it("takes none for two stale claims on this path even when a third pane is unclaimed", () => {
+    const claims: Claims = { p1: { token: "stale-1", path: me.path }, p2: { token: "stale-2", path: me.path } };
+    assert.equal(route(["p1", "p2", "p3"], claims), undefined);
+  });
+
+  it("takes the one unclaimed pane when no claim holds this path", () => {
+    assert.equal(route(["p1", "p2"], { p1: { token: "x", path: "/b.txt" } }), "p2");
+  });
+
+  it("takes none for two unclaimed panes without proof", () => {
+    assert.equal(route(["p1", "p2"], {}), undefined);
+  });
+});
