@@ -42,7 +42,19 @@ A rebuild through the link did not reload an already open pane when observed; cl
 
 Open a pane: `herdr-app do pane.split --direction right --mod editor --props '{"path":"/abs/file.ts"}'`. `props` is `{ path, on? }`.
 
-Commands reach the focused editor pane only: `herdr-app do editor.save`, `editor.overwrite` (during a conflict), `editor.reload` (discards edits). With several editor panes open, a copy owns the pane its keyboard focus proves, its own earlier pane, the one pane left by an earlier build for the same file, or the one unclaimed pane; with two candidates and no focus proof it owns none until a focus event.
+Commands reach the focused editor pane only: `herdr-app do editor.save`, `editor.overwrite` (during a conflict), `editor.reload` (discards edits), `editor.fresh` (saves, then opens the file in Fresh; see below). With several editor panes open, a copy owns the pane its keyboard focus proves, its own earlier pane, the one pane left by an earlier build for the same file, or the one unclaimed pane; with two candidates and no focus proof it owns none until a focus event.
+
+## Open in Fresh
+
+The header's "Open in Fresh" button (and `herdr-app do editor.fresh`, which takes the same path) hands the file to the Fresh editor: a terminal running `fresh <file>` opens to the right of the pane and the editor pane closes. It saves first, with the normal save rules (the guarded write, format on save), and opens Fresh only when the disk then holds exactly the pane's text. On a conflict, a failed save, a save already running, or text edited while the save ran, the pane stays with its bar or notice and no terminal opens. A local read-only file has nothing to save, so it opens at once. The button is absent, and `editor.fresh` does nothing, for a missing file, a folder, a binary file, a file on another machine, and an editor pane whose space is on another machine (the terminal would start on that machine, where the file is not). The button adopts its pane first, as Cmd+S does; with two editor panes open and neither focused yet, it shows once you click into the text. Fresh must be on the PATH of the terminal.
+
+## Owner-run check of Open in Fresh
+
+1. Open a file: `herdr-app do pane.split --direction right --mod editor --props '{"path":"/tmp/try.txt"}'` (create the file first).
+2. Click in the editor and type a character, then click "Open in Fresh" in the header.
+3. `cat /tmp/try.txt` holds your edit, the editor pane is gone and a terminal running Fresh with the file takes its place.
+4. Open the file again in a pane, change it from a terminal (`echo external > /tmp/try.txt`), then click "Open in Fresh": the conflict bar shows, no terminal opens and the file keeps `external`.
+5. Symlink: `ln -s /tmp/try.txt /tmp/try-link.txt`, open `/tmp/try-link.txt` in the editor, click "Open in Fresh", edit and save in Fresh, then run `test -L /tmp/try-link.txt && cat /tmp/try.txt`: the link is still a link and the target holds the edit.
 
 `npm test -- --test-name-pattern=<text>` runs only the matching tests.
 

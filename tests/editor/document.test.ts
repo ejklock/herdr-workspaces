@@ -728,3 +728,147 @@ describe("formatting on save", () => {
     assert.equal(doc.notice, undefined);
   });
 });
+
+describe("handing off to another editor", () => {
+  isolatedEnv();
+
+  it("may open a clean file whose disk is unchanged, writing nothing", async () => {
+    const { doc, path, probe } = await opened("a.txt", "one\n");
+    const before = (await stat(path)).mtimeMs;
+    const result = await doc.handOff("one\n");
+    assert.equal(result.open, true);
+    assert.equal(probe.writes.length, 0);
+    assert.equal((await stat(path)).mtimeMs, before);
+  });
+
+  it("saves edited text first and may open, with the disk holding the written text", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    const result = await doc.handOff("two\n");
+    assert.equal(result.open, true);
+    assert.equal(await onDisk(path), "two\n");
+  });
+
+  it("saves through the project's formatter and reports the text the pane should show", async () => {
+    await fakePrettier("tr a-z A-Z");
+    const { doc, path } = await opened("a.ts", "one\n");
+    const result = await doc.handOff("two\n");
+    assert.equal(await onDisk(path), "TWO\n");
+    assert.equal(result.open, true);
+    assert.equal(result.shown, "TWO\n");
+  });
+
+  it("may not open when the pane was edited while the save ran", async () => {
+    const pane = { text: "two\n" };
+    const { doc, path } = await opened("a.txt", "one\n", host => ({ ...host, writeTextFile: async (p, t, e) => { pane.text = "three\n"; return host.writeTextFile(p, t, e); } }));
+    const result = await doc.handOff(pane.text, () => pane.text);
+    assert.equal(await onDisk(path), "two\n");
+    assert.equal(result.open, false);
+  });
+
+  it("may not open when a formatted save ran while the pane was edited, and shows nothing", async () => {
+    await fakePrettier("tr a-z A-Z");
+    const pane = { text: "two\n" };
+    const { doc, path } = await opened("a.ts", "one\n", host => ({ ...host, writeTextFile: async (p, t, e) => { pane.text = "three\n"; return host.writeTextFile(p, t, e); } }));
+    const result = await doc.handOff(pane.text, () => pane.text);
+    assert.equal(await onDisk(path), "TWO\n");
+    assert.equal(result.open, false);
+    assert.equal(result.shown, undefined);
+  });
+
+  it("may not open when the write fails after the pane went back to the saved text", async () => {
+    const pane = { text: "two\n" };
+    const { doc, path } = await opened("a.txt", "one\n", host => ({ ...host, writeTextFile: async () => { pane.text = "one\n"; throw new Error("disk full"); } }));
+    const result = await doc.handOff(pane.text, () => pane.text);
+    assert.equal(result.open, false);
+    assert.match(doc.failure ?? "", /Could not save/);
+    assert.equal(await onDisk(path), "one\n");
+  });
+
+  it("may not open a clean pane whose disk changed meanwhile, and keeps the external content", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    await writeFile(path, "external\n");
+    const result = await doc.handOff("one\n");
+    assert.equal(result.open, false);
+    assert.deepEqual(doc.conflict, { disk: "external\n" });
+    assert.equal(await onDisk(path), "external\n");
+  });
+
+  it("may not open edited text whose disk changed meanwhile, and keeps the external content", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    await writeFile(path, "external\n");
+    const result = await doc.handOff("two\n");
+    assert.equal(result.open, false);
+    assert.deepEqual(doc.conflict, { disk: "external\n" });
+    assert.equal(await onDisk(path), "external\n");
+  });
+
+  it("may not open when the write fails, and the disk keeps the old text", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    await chmod(dir, 0o555);
+    const result = await doc.handOff("two\n");
+    await chmod(dir, 0o755);
+    assert.equal(result.open, false);
+    assert.match(doc.failure ?? "", /Could not save/);
+    assert.equal(await onDisk(path), "one\n");
+  });
+
+  it("may not open and writes nothing while a save is in flight", async () => {
+    const held = gate();
+    const { doc, path, probe } = await opened("a.txt", "one\n", host => ({ ...host, writeTextFile: async (p, t, e) => { await held.promise; return host.writeTextFile(p, t, e); } }));
+    const first = doc.save("two\n");
+    await new Promise(resolve => setImmediate(resolve));
+    const result = await doc.handOff("one\n");
+    assert.equal(result.open, false);
+    held.open();
+    await first;
+    assert.equal(probe.writes.length, 1);
+    assert.equal(await onDisk(path), "two\n");
+  });
+
+  it("may not open and writes nothing while a conflict is showing", async () => {
+    const { doc, path, probe } = await opened("a.txt", "one\n");
+    await writeFile(path, "external\n");
+    await doc.save("two\n");
+    const writes = probe.writes.length;
+    const result = await doc.handOff("two\n");
+    assert.equal(result.open, false);
+    assert.equal(probe.writes.length, writes);
+    assert.equal(await onDisk(path), "external\n");
+  });
+
+  it("may open a read-only local file over the size limit, writing nothing", async () => {
+    const { doc, path, probe } = await opened("big.txt", "x".repeat(LIMIT + 10));
+    assert.equal(doc.status.kind, "readonly");
+    const result = await doc.handOff(doc.snapshot);
+    assert.equal(result.open, true);
+    assert.equal(probe.writes.length, 0);
+    assert.equal((await stat(path)).size, LIMIT + 10);
+  });
+
+  it("may not open a missing file, a folder or a binary file", async () => {
+    const missing = await opened("missing.txt", null);
+    assert.equal((await missing.doc.handOff("")).open, false);
+    await mkdir(join(dir, "folder"));
+    const folder = await opened("folder", null);
+    assert.equal((await folder.doc.handOff("")).open, false);
+    const binary = await opened("b.bin", "a\0b");
+    assert.equal((await binary.doc.handOff("a\0b")).open, false);
+  });
+
+  it("may not open a file on another machine", async () => {
+    const path = join(dir, "remote.txt");
+    await writeFile(path, "one\n");
+    const { host } = realHost();
+    const doc = new EditorDocument({ ...host, readTextFile: async (p, o) => host.readTextFile(p, { ...o, on: null }) }, path, "other");
+    await doc.open();
+    assert.equal(doc.status.kind, "readonly");
+    assert.equal((await doc.handOff("one\n")).open, false);
+    assert.equal(doc.canHandOff(), false);
+  });
+
+  it("offers the hand-off only for an editable or a local read-only file", async () => {
+    assert.equal((await opened("a.txt", "one\n")).doc.canHandOff(), true);
+    assert.equal((await opened("big.txt", "x".repeat(LIMIT + 10))).doc.canHandOff(), true);
+    assert.equal((await opened("missing.txt", null)).doc.canHandOff(), false);
+  });
+});

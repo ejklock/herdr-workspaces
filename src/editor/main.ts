@@ -2,10 +2,10 @@
 import { View, div } from "gpui-kit";
 import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { props, focused, panes, shared, setShared, exec, readTextFile, writeTextFile, theme, settings, nextCommand } from "herdr";
+import { props, focused, panes, spaces, shared, setShared, run, exec, readTextFile, writeTextFile, theme, settings, nextCommand } from "herdr";
 import { EditorDocument, textToShow } from "./document.ts";
 import { baseName, languageFor, syntaxColors } from "./language.ts";
-import { routePane, type Claims } from "./routing.ts";
+import { routePane, isLocalPane, type Claims } from "./routing.ts";
 
 type Colors = Record<string, string>;
 type Hex = `#${string}`;
@@ -18,6 +18,7 @@ export default class Editing extends View {
   private code: EditorState | undefined;
   private pane: string | undefined;
   private generation = 0;
+  private handingOff = false;
   private readonly token = Math.random().toString(36).slice(2);
 
   override init(_props: unknown, cx: AsyncContext): void {
@@ -32,16 +33,29 @@ export default class Editing extends View {
         const command = await nextCommand();
         this.settle();
         if (!this.active()) continue;
-        if (command === "save") this.save(cx);
-        else if (command === "overwrite") this.overwrite(cx);
-        else if (command === "reload") void this.open(cx);
+        this.dispatch(command, cx);
       }
     });
+  }
+
+  private dispatch(command: string, cx: AsyncContext): void {
+    const commands: Record<string, () => void> = {
+      save: () => this.save(cx),
+      overwrite: () => this.overwrite(cx),
+      reload: () => { void this.open(cx); },
+      fresh: () => this.openInFresh(cx),
+    };
+    if (Object.hasOwn(commands, command)) commands[command]?.();
   }
 
   private text(): string { return this.code?.value() ?? ""; }
 
   private editorPanes(): string[] { return panes().filter(p => p.mod === "editor").map(p => p.pane); }
+
+  /** The hand-off starts a terminal on the focused space's machine, so it is offered only for an editor pane on this machine. */
+  private canHandOff(): boolean {
+    return this.doc.canHandOff() && this.pane !== undefined && isLocalPane(this.pane, panes(), spaces());
+  }
 
   private claims(): Claims { return (shared("editor.claims") ?? {}) as Claims; }
 
@@ -97,6 +111,32 @@ export default class Editing extends View {
     if (this.code && shown !== undefined) this.code.set_value(shown);
   }
 
+  /** Saves first; only when the disk then holds the pane's text does a Fresh terminal take this pane's place. */
+  private openInFresh(cx: AsyncContext): void {
+    const pane = this.pane;
+    if (!pane || this.handingOff || !this.canHandOff()) return;
+    this.handingOff = true;
+    this.run(cx, async () => {
+      try {
+        const sent = this.text();
+        const { open, shown } = await this.doc.handOff(sent, () => this.text());
+        if (this.code && shown !== undefined) this.code.set_value(shown);
+        if (!open) return;
+        const folder = this.path.slice(0, this.path.lastIndexOf("/")) || "/";
+        try {
+          run("pane.focus", { pane });
+          run("terminal.open", { argv: ["fresh", this.path], folder, place: "right" });
+        } catch (error) {
+          this.doc.failure = `Could not open Fresh: ${error instanceof Error ? error.message : String(error)}`;
+          return;
+        }
+        run("pane.close", { pane });
+      } finally {
+        this.handingOff = false;
+      }
+    });
+  }
+
   private run(cx: AsyncContext, work: () => Promise<void>): void {
     cx.spawn(async cx => {
       try { await work(); } finally { cx.notify(); }
@@ -118,7 +158,8 @@ export default class Editing extends View {
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(hex(t, "border"))
         .child(div().font_semibold().truncate().child(this.path ? baseName(this.path) : "Editor"))
         .when(dirty, el => el.child(div().text_color(hex(t, "blocked")).child("●")))
-        .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(hex(t, "dim")).child(this.path)))
+        .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(hex(t, "dim")).child(this.path))
+        .when(this.canHandOff(), el => el.child(this.button("Open in Fresh", "editor-fresh", cx => { this.adopt(); cx.spawn(async acx => this.openInFresh(acx)); }, t))))
       .when(Boolean(this.doc.conflict), el => el.child(h_flex().flex_none().px(14).py(8).gap(8).items_center().border_b(1).border_color(hex(t, "border")).bg(hex(t, "surface"))
         .child(div().flex_1().min_w(0).text_size(12).text_color(hex(t, "blocked")).child("This file changed on disk since you opened it."))
         .child(this.button("Reload", "editor-reload", cx => { cx.spawn(async acx => this.open(acx)); }, t))

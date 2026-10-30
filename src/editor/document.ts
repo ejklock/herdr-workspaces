@@ -93,6 +93,27 @@ export class EditorDocument {
     return this.guarded(async generation => this.write(await this.format(text), conflict.disk, generation));
   }
 
+  /** Whether another program may be given this file: an editable file, or a local one that is read-only and so has nothing to save. */
+  canHandOff(): boolean {
+    return this.status.kind === "editable" || (this.status.kind === "readonly" && !this.on);
+  }
+
+  /**
+   * Saves the pane's text, then says whether another program may open the file: only when the disk then holds exactly the pane's text.
+   * `shown` is the text the pane should now show when the save wrote a different one (formatted) and the pane was not edited meanwhile;
+   * `current` reads the pane's text after the save.
+   */
+  async handOff(text: string, current: () => string = () => text): Promise<{ open: boolean; shown: string | undefined }> {
+    const closed = { open: false, shown: undefined };
+    if (!this.canHandOff()) return closed;
+    if (this.status.kind === "readonly") return { open: true, shown: undefined };
+    if (this.saving || this.conflict) return closed;
+    const written = await this.save(text);
+    if (this.conflict || this.failure !== undefined) return closed;
+    const shown = textToShow(text, current(), written);
+    return { open: !this.dirty(shown ?? current()), shown };
+  }
+
   private async guarded(work: (generation: number) => Promise<string | undefined>): Promise<string | undefined> {
     const generation = this.generation;
     this.saving = true;

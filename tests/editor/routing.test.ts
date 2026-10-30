@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { routePane, type Claims } from "../../src/editor/routing.ts";
+import { routePane, isLocalPane, type Claims } from "../../src/editor/routing.ts";
 
 const me = { token: "me", path: "/a.txt" };
 const route = (open: string[], claims: Claims, current?: string, proof?: string) =>
@@ -63,5 +63,36 @@ describe("routing", () => {
 
   it("takes none for two unclaimed panes without proof", () => {
     assert.equal(route(["p1", "p2"], {}), undefined);
+  });
+});
+
+describe("editor pane on the local machine", () => {
+  const space = (machine: string | null, ...tabs: string[]) => ({ machine, tabs: tabs.map(id => ({ id })) });
+  const pane = (id: string, tab: string) => ({ pane: id, tab });
+
+  it("is local when its tab belongs to a space on this machine", () => {
+    assert.equal(isLocalPane("p1", [pane("p1", "t1")], [space(null, "t1")]), true);
+  });
+
+  it("is not local when its tab belongs to a space on another machine", () => {
+    assert.equal(isLocalPane("p1", [pane("p1", "t1")], [space("box", "t1")]), false);
+  });
+
+  it("is not local when the pane is not in the panes list", () => {
+    assert.equal(isLocalPane("p9", [pane("p1", "t1")], [space(null, "t1")]), false);
+  });
+
+  it("is not local when its tab is in no space", () => {
+    assert.equal(isLocalPane("p1", [pane("p1", "t7")], [space(null, "t1")]), false);
+  });
+
+  it("is not local in a remote space while another, local space is also listed", () => {
+    const spaces = [space(null, "t1"), space("box", "t2")];
+    assert.equal(isLocalPane("p2", [pane("p1", "t1"), pane("p2", "t2")], spaces), false);
+    assert.equal(isLocalPane("p1", [pane("p1", "t1"), pane("p2", "t2")], spaces), true);
+  });
+
+  it("is not local for a machine-prefixed pane inside a remote space", () => {
+    assert.equal(isLocalPane("box/p1", [pane("box/p1", "box/t1")], [space("box", "box/t1")]), false);
   });
 });

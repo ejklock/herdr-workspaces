@@ -31,3 +31,14 @@ export function routePane({ open, claims, token, path, current, proof }: Routing
   const free = open.filter(pane => !live(pane));
   return free.length === 1 ? free[0] : undefined;
 }
+
+/** Whether an editor pane sits in a space on this machine, decided from the app's own pane and space lists; an unknown pane or tab is not local. */
+export function isLocalPane(
+  pane: string,
+  panes: readonly { pane: string; tab: string }[],
+  spaces: readonly { machine: string | null; tabs: readonly { id: string }[] }[],
+): boolean {
+  const tab = panes.find(p => p.pane === pane)?.tab;
+  if (tab === undefined) return false;
+  return spaces.some(space => space.machine === null && space.tabs.some(t => t.id === tab));
+}
