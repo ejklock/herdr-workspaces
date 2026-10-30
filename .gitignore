@@ -1,4 +1,5 @@
 node_modules
+coverage/
 mods/editor/*.js
 !mods/editor/main.js
 mods/editor/editor/

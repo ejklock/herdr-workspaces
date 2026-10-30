@@ -30,6 +30,7 @@ npm install
 npm run build        # emits mods/editor/editor/*.js and mods/editor/format/*.js from src; mods/editor/main.js re-exports the entry
 npm run typecheck    # src against the app's .d.ts, tests against @types/node
 npm test
+npm run coverage     # same tests, writes coverage/lcov.info for src and stamps the gate's receipt
 ln -s "$PWD/mods/editor" ~/.config/herdr-app/mods/editor
 ```
 
