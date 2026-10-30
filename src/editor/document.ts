@@ -1,3 +1,5 @@
+import { resolveFormatter, runFormatter, type Formatter } from "../format/index.ts";
+
 export const LIMIT = 1048576;
 
 export type ExecResult = { code: number; stdout: string; stderr: string };
@@ -20,12 +22,20 @@ type Opened = { status: Status; snapshot: string; target: string };
 
 const KIND_PROBE = 'if [ -d "$1" ]; then echo dir; elif [ -e "$1" ]; then echo file; else echo missing; fi';
 
+/** The text the pane should now show: what a save wrote, only when it differs from what was sent and the pane was not edited since. */
+export function textToShow(sent: string, current: string, written: string | undefined): string | undefined {
+  return written !== undefined && written !== sent && current === sent ? written : undefined;
+}
+
 /** One file's open, save and conflict state; the text being edited lives in the view and is passed in. */
 export class EditorDocument {
   status: Status = { kind: "loading" };
   snapshot = "";
   conflict: Conflict | undefined;
   failure: string | undefined;
+  /** Why the last save wrote the text as typed instead of formatted; undefined when it was formatted or no formatter applies. */
+  notice: string | undefined;
+  private formatter: Formatter | undefined;
   private target: string;
   private saving = false;
   private generation = 0;
@@ -51,37 +61,59 @@ export class EditorDocument {
     this.snapshot = "";
     this.conflict = undefined;
     this.failure = undefined;
+    this.notice = undefined;
+    this.formatter = undefined;
     this.saving = false;
     const opened = await this.classify();
     if (generation !== this.generation) return;
     this.status = opened.status;
     this.snapshot = opened.snapshot;
     this.target = opened.target;
+    if (opened.status.kind === "editable") {
+      const formatter = await resolveFormatter(this.host, opened.target).catch(() => undefined);
+      if (generation === this.generation) this.formatter = formatter;
+    }
   }
 
-  async save(text: string): Promise<void> {
-    if (this.status.kind !== "editable" || this.saving || this.conflict) return;
-    await this.guarded(async generation => {
-      if (text !== this.snapshot) return this.write(text, this.snapshot, generation);
+  /** The text this call wrote, or undefined when nothing was written (no edits, a save already running, a failure, a conflict). */
+  async save(text: string): Promise<string | undefined> {
+    if (this.status.kind !== "editable" || this.saving || this.conflict) return undefined;
+    return this.guarded(async generation => {
+      if (text !== this.snapshot) return this.write(await this.format(text), this.snapshot, generation);
       const disk = await this.readDisk();
       if (generation === this.generation && disk !== undefined && disk !== this.snapshot) this.conflict = { disk };
+      return undefined;
     });
   }
 
-  async overwrite(text: string): Promise<void> {
+  /** The text this call wrote, or undefined when nothing was written. */
+  async overwrite(text: string): Promise<string | undefined> {
     const conflict = this.conflict;
-    if (this.status.kind !== "editable" || this.saving || !conflict) return;
-    await this.guarded(generation => this.write(text, conflict.disk, generation));
+    if (this.status.kind !== "editable" || this.saving || !conflict) return undefined;
+    return this.guarded(async generation => this.write(await this.format(text), conflict.disk, generation));
   }
 
-  private async guarded(work: (generation: number) => Promise<void>): Promise<void> {
+  private async guarded(work: (generation: number) => Promise<string | undefined>): Promise<string | undefined> {
     const generation = this.generation;
     this.saving = true;
     this.failure = undefined;
-    try { await work(generation); } finally { if (generation === this.generation) this.saving = false; }
+    this.notice = undefined;
+    try { return await work(generation); } finally { if (generation === this.generation) this.saving = false; }
   }
 
-  private async write(text: string, expected: string | null, generation: number): Promise<void> {
+  /** The text to write: formatted when the project has a formatter and it succeeds, otherwise exactly as typed with a notice saying why. */
+  private async format(text: string): Promise<string> {
+    const formatter = this.formatter;
+    if (!formatter) return text;
+    try {
+      return await runFormatter(this.host, formatter, text);
+    } catch (error) {
+      this.notice = `Saved without formatting (${formatter.name}): ${error instanceof Error ? error.message : String(error)}`;
+      return text;
+    }
+  }
+
+  private async write(text: string, expected: string | null, generation: number): Promise<string | undefined> {
     let failure: unknown;
     try {
       await this.host.writeTextFile(this.target, text, expected);
@@ -90,16 +122,18 @@ export class EditorDocument {
     }
     if (failure === undefined) return this.saved(text, generation);
     const disk = await this.readDisk();
-    if (generation !== this.generation) return;
+    if (generation !== this.generation) return undefined;
     if (disk === text) return this.saved(text, generation);
     if (disk !== undefined && disk !== expected) this.conflict = { disk };
     else this.failure = `Could not save: ${failure instanceof Error ? failure.message : String(failure)}`;
+    return undefined;
   }
 
-  private saved(text: string, generation: number): void {
-    if (generation !== this.generation) return;
+  private saved(text: string, generation: number): string | undefined {
+    if (generation !== this.generation) return undefined;
     this.snapshot = text;
     this.conflict = undefined;
+    return text;
   }
 
   private readDisk(): Promise<string | null | undefined> {

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EditorDocument, LIMIT, type Host } from "../../src/editor/document.ts";
+import { EditorDocument, LIMIT, textToShow, type Host } from "../../src/editor/document.ts";
 import { languageFor } from "../../src/editor/language.ts";
 
 const CAP = 1048576;
@@ -374,11 +374,6 @@ describe("resolving", () => {
 });
 
 describe("racing", () => {
-  function gate() {
-    let open = () => {};
-    const promise = new Promise<void>(resolve => { open = resolve; });
-    return { promise, open };
-  }
   const tick = () => new Promise(resolve => setImmediate(resolve));
 
   it("takes the reload's text and reports a conflict on the next save when a save is in flight during a reload", async () => {
@@ -496,5 +491,240 @@ describe("racing", () => {
     assert.equal(doc.snapshot, "external\n");
     assert.equal(doc.conflict, undefined);
     assert.equal(doc.failure, undefined);
+  });
+});
+
+function gate() {
+  let open = () => {};
+  const promise = new Promise<void>(resolve => { open = resolve; });
+  return { promise, open };
+}
+
+const HOME_PATH = "/usr/bin:/bin";
+
+/** Gives each test its own TMPDIR, HOME and PATH, restoring the host's afterwards; returns the TMPDIR the code under test must clean. */
+function isolatedEnv(): () => string {
+  let tmp = "";
+  let home = "";
+  const saved = { TMPDIR: process.env["TMPDIR"], HOME: process.env["HOME"], PATH: process.env["PATH"] };
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "editor-fmt-tmp-"));
+    home = await mkdtemp(join(tmpdir(), "editor-fmt-home-"));
+    process.env["TMPDIR"] = tmp;
+    process.env["HOME"] = home;
+    process.env["PATH"] = HOME_PATH;
+  });
+  afterEach(async () => {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    await rm(tmp, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  });
+  return () => tmp;
+}
+
+async function fakePrettier(body: string): Promise<void> {
+  await mkdir(join(dir, "node_modules/.bin"), { recursive: true });
+  await writeFile(join(dir, "node_modules/.bin/prettier"), `#!/bin/sh\n${body}\n`);
+  await chmod(join(dir, "node_modules/.bin/prettier"), 0o755);
+  await writeFile(join(dir, ".prettierrc"), "{}\n");
+}
+
+describe("pane text after saving", () => {
+  isolatedEnv();
+  type Pane = { text: string; replaced?: number };
+
+  /** What the pane does with a save: sends its text, then shows the text the save reports unless it was edited meanwhile. */
+  async function persist(pane: Pane, write: (text: string) => Promise<string | undefined>): Promise<void> {
+    const sent = pane.text;
+    const written = await write(sent);
+    const next = textToShow(sent, pane.text, written);
+    if (next === undefined) return;
+    pane.text = next;
+    pane.replaced = (pane.replaced ?? 0) + 1;
+  }
+
+  it("shows the written text when a formatted save landed", async () => {
+    await fakePrettier("tr a-z A-Z");
+    const { doc } = await opened("a.ts", "one\n");
+    const pane = { text: "two\n" };
+    await persist(pane, t => doc.save(t));
+    assert.equal(pane.text, "TWO\n");
+  });
+
+  it("leaves the pane untouched when an unformatted save landed", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    const pane = { text: "two\n", replaced: 0 };
+    await persist(pane, t => doc.save(t));
+    assert.equal(pane.text, "two\n");
+    assert.equal(pane.replaced, 0);
+    assert.equal(await onDisk(path), "two\n");
+  });
+
+  it("keeps the typed text when the write failed", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    await chmod(dir, 0o555);
+    const pane = { text: "two\n" };
+    await persist(pane, t => doc.save(t));
+    assert.match(doc.failure ?? "", /Could not save/);
+    assert.equal(pane.text, "two\n");
+    await chmod(dir, 0o755);
+    assert.equal(await onDisk(path), "one\n");
+  });
+
+  it("keeps the typed text for a second save while one is running, and a save without edits afterwards writes nothing", async () => {
+    const held = gate();
+    const { doc, path, probe } = await opened("a.txt", "one\n", host => ({ ...host, writeTextFile: async (p, t, e) => { await held.promise; return host.writeTextFile(p, t, e); } }));
+    const pane = { text: "two\n" };
+    const first = persist(pane, t => doc.save(t));
+    await new Promise(resolve => setImmediate(resolve));
+    await persist(pane, t => doc.save(t));
+    assert.equal(pane.text, "two\n");
+    held.open();
+    await first;
+    await persist(pane, t => doc.save(t));
+    assert.equal(pane.text, "two\n");
+    assert.equal(await onDisk(path), "two\n");
+    assert.equal(probe.writes.length, 1);
+  });
+
+  it("keeps the typed text when an overwrite finds no conflict", async () => {
+    const { doc, path } = await opened("a.txt", "one\n");
+    const pane = { text: "two\n" };
+    await persist(pane, t => doc.overwrite(t));
+    assert.equal(pane.text, "two\n");
+    assert.equal(await onDisk(path), "one\n");
+  });
+
+  it("keeps the typed text when the save is rejected into a conflict", async () => {
+    await fakePrettier("tr a-z A-Z");
+    const { doc, path } = await opened("a.ts", "one\n");
+    await writeFile(path, "external\n");
+    const pane = { text: "two\n" };
+    await persist(pane, t => doc.save(t));
+    assert.ok(doc.conflict);
+    assert.equal(pane.text, "two\n");
+  });
+
+  it("keeps the newer text when the pane was edited while the formatter ran", async () => {
+    await fakePrettier("tr a-z A-Z");
+    const pane = { text: "two\n" };
+    const { doc, path } = await opened("a.ts", "one\n", host => ({ ...host, writeTextFile: async (p, t, e) => { pane.text = "three\n"; return host.writeTextFile(p, t, e); } }));
+    await persist(pane, t => doc.save(t));
+    assert.equal(await onDisk(path), "TWO\n");
+    assert.equal(pane.text, "three\n");
+  });
+});
+
+describe("formatting on save", () => {
+  const tmpDir = isolatedEnv();
+  const prettier = fakePrettier;
+  const UPPER = "tr a-z A-Z";
+  const clean = async (): Promise<void> => {
+    assert.deepEqual(await readdir(tmpDir()), []);
+  };
+
+  it("writes the formatter's output with the old snapshot as expected and takes it as the snapshot", async () => {
+    await prettier(UPPER);
+    const { doc, path, probe } = await opened("a.ts", "one\n");
+    await doc.save("two\n");
+    assert.equal(await onDisk(path), "TWO\n");
+    assert.deepEqual(probe.writes.map(w => w.expected).slice(-1), ["one\n"]);
+    assert.equal(doc.snapshot, "TWO\n");
+    assert.equal(doc.dirty("TWO\n"), false);
+    assert.equal(doc.notice, undefined);
+    await clean();
+    assert.deepEqual((await readdir(dir)).sort(), [".prettierrc", "a.ts", "node_modules"]);
+  });
+
+  it("writes the text as typed with a notice naming the formatter when it exits non-zero", async () => {
+    await prettier("echo syntax error >&2; exit 2");
+    const { doc, path } = await opened("a.ts", "one\n");
+    await doc.save("two (\n");
+    assert.equal(await onDisk(path), "two (\n");
+    assert.equal(doc.snapshot, "two (\n");
+    assert.match(doc.notice ?? "", /prettier/);
+    assert.match(doc.notice ?? "", /syntax error/);
+    await clean();
+  });
+
+  it("writes the text as typed, never an empty file, when the formatter prints nothing", async () => {
+    await prettier("cat >/dev/null");
+    const { doc, path } = await opened("a.ts", "one\n");
+    await doc.save("two\n");
+    assert.equal(await onDisk(path), "two\n");
+    assert.match(doc.notice ?? "", /prettier/);
+    await clean();
+  });
+
+  it("writes the text as typed with a notice when the formatter run throws", async () => {
+    await prettier(UPPER);
+    const { doc, path } = await opened("a.ts", "one\n", host => ({
+      ...host,
+      exec: (command, args, options) => (options?.cwd !== undefined ? Promise.reject(new Error("timed out")) : host.exec(command, args, options)),
+    }));
+    await doc.save("two\n");
+    assert.equal(await onDisk(path), "two\n");
+    assert.match(doc.notice ?? "", /prettier/);
+    await clean();
+  });
+
+  it("neither formats nor writes when there are no edits", async () => {
+    const marks = await mkdtemp(join(process.env["HOME"] ?? tmpdir(), "marks-"));
+    try {
+      await prettier(`echo run >> "${marks}/runs"; ${UPPER}`);
+      const { doc, path } = await opened("a.ts", "one\n");
+      const before = (await stat(path)).mtimeMs;
+      await doc.save("one\n");
+      assert.equal(await onDisk(path), "one\n");
+      assert.equal((await stat(path)).mtimeMs, before);
+      assert.equal(doc.notice, undefined);
+      assert.deepEqual(await readdir(marks), []);
+      await doc.save("two\n");
+      assert.equal(await readFile(`${marks}/runs`, "utf8"), "run\n");
+      await clean();
+    } finally {
+      await rm(marks, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects the formatted write and shows a conflict when the disk changed", async () => {
+    await prettier(UPPER);
+    const { doc, path } = await opened("a.ts", "one\n");
+    await writeFile(path, "external\n");
+    await doc.save("two\n");
+    assert.equal(await onDisk(path), "external\n");
+    assert.deepEqual(doc.conflict, { disk: "external\n" });
+    await clean();
+  });
+
+  it("writes the formatted text with the conflict's disk text as expected on overwrite", async () => {
+    await prettier(UPPER);
+    const { doc, path, probe } = await opened("a.ts", "one\n");
+    await writeFile(path, "external\n");
+    await doc.save("two\n");
+    await doc.overwrite("two\n");
+    assert.equal(await onDisk(path), "TWO\n");
+    assert.deepEqual(probe.writes.slice(-1).map(w => w.expected), ["external\n"]);
+    assert.equal(doc.snapshot, "TWO\n");
+    assert.equal(doc.conflict, undefined);
+    await clean();
+  });
+
+  it("writes the text as typed with no notice in a project with no formatter", async () => {
+    const { doc, path } = await opened("a.ts", "one\n");
+    await doc.save("two\n");
+    assert.equal(await onDisk(path), "two\n");
+    assert.equal(doc.notice, undefined);
+    await clean();
+  });
+
+  it("clears an earlier notice on the next save", async () => {
+    await prettier("exit 2");
+    const { doc } = await opened("a.ts", "one\n");
+    await doc.save("two\n");
+    assert.ok(doc.notice);
+    await prettier(UPPER);
+    await doc.save("three\n");
+    assert.equal(doc.notice, undefined);
   });
 });

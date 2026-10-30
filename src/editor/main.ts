@@ -3,7 +3,7 @@ import { View, div } from "gpui-kit";
 import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { props, focused, panes, shared, setShared, exec, readTextFile, writeTextFile, theme, settings, nextCommand } from "herdr";
-import { EditorDocument } from "./document.ts";
+import { EditorDocument, textToShow } from "./document.ts";
 import { baseName, languageFor, syntaxColors } from "./language.ts";
 import { routePane, type Claims } from "./routing.ts";
 
@@ -85,9 +85,17 @@ export default class Editing extends View {
     cx.notify();
   }
 
-  private save(cx: AsyncContext): void { this.run(cx, () => this.doc.save(this.text())); }
+  private save(cx: AsyncContext): void { this.run(cx, () => this.persist(text => this.doc.save(text))); }
 
-  private overwrite(cx: AsyncContext): void { this.run(cx, () => this.doc.overwrite(this.text())); }
+  private overwrite(cx: AsyncContext): void { this.run(cx, () => this.persist(text => this.doc.overwrite(text))); }
+
+  /** Writes the pane's text; the pane's text is replaced only by text this call wrote (a formatter ran) while the pane was not edited meanwhile. */
+  private async persist(write: (text: string) => Promise<string | undefined>): Promise<void> {
+    const sent = this.text();
+    const written = await write(sent);
+    const shown = textToShow(sent, this.text(), written);
+    if (this.code && shown !== undefined) this.code.set_value(shown);
+  }
 
   private run(cx: AsyncContext, work: () => Promise<void>): void {
     cx.spawn(async cx => {
@@ -103,7 +111,7 @@ export default class Editing extends View {
     const t = theme();
     if (this.pane === undefined) this.settle();
     const status = this.doc.status;
-    const notice = this.doc.failure ?? (status.kind === "readonly" || status.kind === "unavailable" ? status.message : undefined);
+    const notice = this.doc.failure ?? this.doc.notice ?? (status.kind === "readonly" || status.kind === "unavailable" ? status.message : undefined);
     const dirty = this.doc.dirty(this.text());
     return v_flex().id("editor").key_context("EditorPane").on_action("editor-save", (_e, cx) => { this.adopt(); this.save(cx); })
       .size_full().min_h(0).rounded(10).overflow_hidden().bg(hex(t, "background")).border_1().border_color(hex(t, "border")).text_color(hex(t, "foreground")).text_size(13)
