@@ -12,6 +12,9 @@ fi
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 home=$(cd "$1" && pwd -P)
 marker=.installed-from
+# Names the project, not the checkout, so a copy made from any other checkout of it is still ours. An earlier
+# install wrote the plugin's absolute path instead; only these installers ever wrote the file.
+marker_text=herdr-workspaces
 
 for built in editor/editor/main.js my-files/files/main.js; do
   if [ ! -f "$repo/mods/$built" ]; then
@@ -20,7 +23,7 @@ for built in editor/editor/main.js my-files/files/main.js; do
   fi
 done
 
-# A target may be absent, an earlier link into this repository, or this repository's own copy.
+# A target may be absent, an earlier link into this repository, or a copy this project made.
 check_target() {
   target="$home/mods/$1"
   if [ -L "$target" ]; then
@@ -32,8 +35,12 @@ check_target() {
   fi
   [ -e "$target" ] || return 0
   # A marker that is a link proves nothing and would send the marker write outside the target.
-  if [ ! -L "$target/$marker" ] && [ -f "$target/$marker" ] && [ "$(cat "$target/$marker")" = "$repo" ]; then return 0; fi
-  echo "refusing $target: not a copy made from $repo" >&2
+  if [ ! -L "$target/$marker" ] && [ -f "$target/$marker" ]; then
+    case $(cat "$target/$marker") in
+      "$marker_text" | /*) return 0 ;;
+    esac
+  fi
+  echo "refusing $target: not a copy made by herdr-workspaces" >&2
   return 1
 }
 
@@ -77,7 +84,7 @@ install_mod() {
   if [ -L "$target" ]; then rm "$target"; fi
   mkdir -p "$target"
   # The marker goes first so a copy that fails partway is still recognised as ours on the next run.
-  printf '%s' "$repo" > "$target/$marker"
+  printf '%s' "$marker_text" > "$target/$marker"
   sync_folder "$repo/mods/$mod" "$target"
   for sub in "$@"; do
     sync_folder "$repo/mods/$mod/$sub" "$target/$sub"
