@@ -3,7 +3,6 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
-* [0011 — Changes panel and side-by-side diff pane](0011-changes-panel-and-side-by-side-diff-pane.md) - open
 
 ## Closed
 
@@ -16,3 +15,4 @@
 * [0008 — Open the active workspace in a new Herdr window](0008-open-the-active-workspace-in-a-new-herdr-window.md) - closed
 * [0009 — Layout card shows a preview and the name Workspaces](0009-layout-card-shows-a-preview-and-the-name-workspaces.md) - closed
 * [0010 — Installer marker names the project, not the checkout path](0010-installer-marker-names-the-project-not-the-checkout-path.md) - closed
+* [0011 — Changes panel and side-by-side diff pane](0011-changes-panel-and-side-by-side-diff-pane.md) - closed
