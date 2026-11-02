@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, props, closeOverlay, openOverlay, theme, keys, shared, terminals, spaces, panes, exec, notify, appHome, readTextFile, writeTextFile } from "herdr";
-import { assignSpace, deleteGroup, moveToGroup, newSpaceArgs, settledStore, storePaths, updateStore } from "./lib.js";
+import { assignSpace, deleteGroup, moveToGroup, newSpaceArgs, settledStore, storeHome, storePaths, updateStore } from "./lib.js";
 import { menuItems, menuIcon } from "./menu-items.js";
 import { followWorkspaceStore, iconPath, workspaceColor } from "./switcher.js";
 
@@ -94,7 +94,7 @@ export default class Menu extends View {
   async write(change, title) {
     let result;
     try {
-      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(appHome()).file, change);
+      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(storeHome(shared("workspaces.home"), appHome())).file, change);
     } catch (e) {
       result = { error: e.message ?? String(e) };
     }
@@ -103,7 +103,7 @@ export default class Menu extends View {
 
   // Makes a space on the active workspace's core. With no store read yet it waits for the file first, and the overlay closes only after that, because Herdr cancels an overlay's unfinished tasks once it closes.
   async newSpace(overlay) {
-    const store = await settledStore(this.store, readTextFile, storePaths(appHome()).file).catch(() => this.store);
+    const store = await settledStore(this.store, readTextFile, storePaths(storeHome(shared("workspaces.home"), appHome())).file).catch(() => this.store);
     closeOverlay(overlay);
     run("space.new", newSpaceArgs(store, shared("workspaces.active")));
   }

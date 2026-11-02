@@ -1,5 +1,6 @@
 {
   "id": "root",
+  "preview": "mods/workspaces/preview.svg",
   "cloned_from": {
     "name": "main",
     "version": "0.1.9"
@@ -23,6 +24,20 @@
             "px": 46
           },
           "window_drag": true
+        },
+        {
+          "id": "workspace-selector",
+          "type": "block",
+          "content": {
+            "mod": "workspaces",
+            "props": {
+              "role": "chrome",
+              "selector": true
+            }
+          },
+          "size": {
+            "px": 69
+          }
         },
         {
           "id": "sidebar-lists",
@@ -69,7 +84,7 @@
             }
           },
           "size": {
-            "px": 140
+            "px": 71
           }
         }
       ],

@@ -3,9 +3,8 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, theme, closeOverlay, setShared, shared, appHome, readTextFile, writeTextFile, hc } from "herdr";
-import { mkdir } from "fs/promises";
-import { storePaths, loadStore, dialogCores, updateStore, createWorkspace, renameWorkspace, deleteWorkspace, newWorkspaceId, WORKSPACE_ICONS, WORKSPACE_COLORS } from "./lib.js";
+import { props, theme, closeOverlay, setShared, shared, appHome, readTextFile, writeTextFile, exec, hc } from "herdr";
+import { ensureStoreDir, storeHome, storePaths, loadStore, dialogCores, updateStore, createWorkspace, renameWorkspace, deleteWorkspace, newWorkspaceId, WORKSPACE_ICONS, WORKSPACE_COLORS } from "./lib.js";
 import { ACTIVE_KEY, iconPath, workspaceColor } from "./switcher.js";
 
 const files = { read: readTextFile, write: writeTextFile };
@@ -47,7 +46,7 @@ export default class WorkspaceDialog extends View {
       try {
         const listed = await hc(["machine", "ls", "--json"]);
         if (listed.code !== 0) throw new Error(listed.stderr?.trim() || `hc exited with ${listed.code}`);
-        const { store } = await loadStore(readTextFile, storePaths(appHome()).file);
+        const { store } = await loadStore(readTextFile, storePaths(storeHome(shared("workspaces.home"), appHome())).file);
         this.cores = dialogCores(store, JSON.parse(listed.stdout).machines, this.id);
       } catch (e) {
         this.coresError = `Could not list the cores: ${e.message ?? e}`;
@@ -63,9 +62,9 @@ export default class WorkspaceDialog extends View {
     cx.spawn(async (cx) => {
       let result;
       try {
-        const { dir, file } = storePaths(appHome());
-        await mkdir(dir, { recursive: true });
-        result = await updateStore(files, file, change);
+        const { dir, file } = storePaths(storeHome(shared("workspaces.home"), appHome()));
+        const made = await ensureStoreDir(exec, dir);
+        result = made.error ? { error: `Could not save: ${made.error}` } : await updateStore(files, file, change);
       } catch (e) {
         result = { error: `Could not save: ${e.message ?? e}` };
       }

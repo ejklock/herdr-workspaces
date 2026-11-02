@@ -1,13 +1,13 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "..");
 const script = join(repo, "bin", "install");
-const repoLayout = readFileSync(join(repo, "layouts", "workspaces.json"), "utf8");
+const repoLayout = readFileSync(join(repo, "layouts", "Workspaces.json"), "utf8");
 const scratch = [];
 
 function scratchDir(prefix) {
@@ -39,8 +39,8 @@ writeFileSync("mods/my-files/files/main.js", "built files/main.js");
 function stubRepo({ layoutText = repoLayout, build = "node build.mjs" } = {}) {
   const copy = scratchDir("install-repo-");
   for (const dir of ["bin", "mods", "layouts"]) cpSync(join(repo, dir), join(copy, dir), { recursive: true });
-  if (layoutText === null) rmSync(join(copy, "layouts", "workspaces.json"));
-  else writeFileSync(join(copy, "layouts", "workspaces.json"), layoutText);
+  if (layoutText === null) rmSync(join(copy, "layouts", "Workspaces.json"));
+  else writeFileSync(join(copy, "layouts", "Workspaces.json"), layoutText);
   const plugin = join(copy, "plugins", "editor");
   cpSync(join(repo, "plugins", "editor", "bin"), join(plugin, "bin"), { recursive: true });
   writeFileSync(join(plugin, "package.json"), JSON.stringify({ name: "stub", scripts: { build } }));
@@ -63,7 +63,7 @@ function assertNothingWritten(home) {
 }
 
 function installedLayout(home) {
-  return readFileSync(join(home, "layouts", "workspaces.json"), "utf8");
+  return readFileSync(join(home, "layouts", "Workspaces.json"), "utf8");
 }
 
 function lineDiff(a, b) {
@@ -165,8 +165,79 @@ test("a foreign layout file makes the script refuse and write nothing", () => {
   writeFileSync(join(home, "layouts", "workspaces.json"), "foreign");
   const run = install(home, { installScript: stubRepo().script });
   assert.equal(run.status, 1);
-  assert.equal(installedLayout(home), "foreign");
+  assert.equal(readFileSync(join(home, "layouts", "workspaces.json"), "utf8"), "foreign");
   assert.deepEqual(readdirSync(home), ["layouts"]);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["workspaces.json"]);
+});
+
+test("a fresh home lists the layout as Workspaces.json only", () => {
+  const home = freshHome();
+  assert.equal(install(home, { installScript: stubRepo().script }).status, 0);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+});
+
+test("an earlier workspaces.json made by this script is replaced by Workspaces.json", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  mkdirSync(join(home, "mods", "workspaces"), { recursive: true });
+  writeFileSync(join(home, "mods", "workspaces", ".installed-from"), stub.copy);
+  mkdirSync(join(home, "layouts"));
+  writeFileSync(join(home, "layouts", "workspaces.json"), "earlier content");
+  const run = install(home, { installScript: stub.script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+  assert.equal(installedLayout(home).includes("earlier content"), false);
+  assert.match(installedLayout(home), /"mod": "my-files"/);
+});
+
+test("a second install writes Workspaces.json in place: same inode, new content", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  assert.equal(install(home, { installScript: stub.script }).status, 0);
+  const file = join(home, "layouts", "Workspaces.json");
+  const inode = statSync(file).ino;
+  writeFileSync(join(stub.copy, "layouts", "Workspaces.json"), repoLayout + "\n");
+  const run = install(home, { installScript: stub.script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+  assert.equal(statSync(file).ino, inode);
+  assert.equal(installedLayout(home), (repoLayout + "\n").replace('"mod": "files"', '"mod": "my-files"'));
+});
+
+test("a Workspaces.json symlink into this repository is replaced by a plain file", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  mkdirSync(join(home, "layouts"));
+  const file = join(home, "layouts", "Workspaces.json");
+  symlinkSync(join(stub.copy, "layouts", "Workspaces.json"), file);
+  const run = install(home, { installScript: stub.script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+  assert.equal(lstatSync(file).isSymbolicLink(), false);
+  assert.match(installedLayout(home), /"mod": "my-files"/);
+  assert.equal(readFileSync(join(stub.copy, "layouts", "Workspaces.json"), "utf8"), repoLayout);
+});
+
+test("a Workspaces.json symlink pointing elsewhere makes the script refuse and write nothing", () => {
+  const home = freshHome();
+  const elsewhere = scratchDir("install-elsewhere-");
+  mkdirSync(join(home, "layouts"));
+  symlinkSync(join(elsewhere, "target.json"), join(home, "layouts", "Workspaces.json"));
+  const run = install(home, { installScript: stubRepo().script });
+  assert.equal(run.status, 1);
+  assert.deepEqual(readdirSync(home), ["layouts"]);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+  assert.equal(existsSync(join(elsewhere, "target.json")), false);
+});
+
+test("installing twice leaves one Workspaces.json with the same content", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  assert.equal(install(home, { installScript: stub.script }).status, 0);
+  const first = installedLayout(home);
+  assert.equal(install(home, { installScript: stub.script }).status, 0);
+  assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+  assert.equal(installedLayout(home), first);
 });
 
 test("a source layout naming the Files mod twice is refused before anything is written", () => {

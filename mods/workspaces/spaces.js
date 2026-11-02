@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify, nextCommand } from "herdr";
-import { storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceArgs, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
+import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceArgs, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
 import { followWorkspaceStore, openWorkspaceDialog } from "./switcher.js";
 
 function find(node, id) {
@@ -78,7 +78,7 @@ export default class Spaces extends View {
 
   // Makes a space on the active workspace's core; before any store is read it waits for the file instead of making it on the local core.
   async newSpace() {
-    const store = await settledStore(this.store, readTextFile, storePaths(appHome()).file).catch(() => this.store);
+    const store = await settledStore(this.store, readTextFile, storePaths(storeHome(shared("workspaces.home"), appHome())).file).catch(() => this.store);
     run("space.new", newSpaceArgs(store, shared("workspaces.active")));
   }
 
@@ -98,6 +98,20 @@ export default class Spaces extends View {
     const due = this.due(now, sp, panes());
     if (due.size) this.refreshGit(due, cx);
     if (sp.some((s) => !this.shown.has(s.id))) cx.notify();
+    this.focusFirst();
+  }
+
+  // A window opened for a workspace sets the focus flag: once the store has been read from disk (and holds the
+  // workspace, for a workspace window) and the spaces are listed, the first listed space is selected and the flag is cleared. Without the flag nothing happens.
+  focusFirst() {
+    const id = shared("workspaces.active") ?? undefined;
+    const active = activeWorkspace(this.store, id);
+    if (!focusReady({ flag: shared(FOCUS_KEY), storeRead: this.storeRead, id, active })) return;
+    const rows = this.ordered();
+    if (this.loading(active?.machine ?? null)) return;
+    const first = firstListedSpace(this.store, id, rows);
+    setShared(FOCUS_KEY, null);
+    if (first !== undefined) run("space.select", { id: first });
   }
 
   // Places whose git could have changed: new ones (a new space, a cd), where a
@@ -235,7 +249,7 @@ export default class Spaces extends View {
     const live = spaces();
     let result;
     try {
-      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(appHome()).file, (store) => moveToGroup(store, active, live, spaceId, groupId));
+      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(storeHome(shared("workspaces.home"), appHome())).file, (store) => moveToGroup(store, active, live, spaceId, groupId));
     } catch (e) {
       result = { error: e.message ?? String(e) };
     }

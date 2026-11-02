@@ -1,12 +1,11 @@
 // The workspace switcher popup: Default, every workspace (a check on the active one, an edit control),
 // and "New workspace…". Choosing one sets it active for this window; Default clears it.
-// Also holds what the footer row and the popup share: the active-workspace key and the live store (drawn from the last store read until the file is read).
+// Also holds what the selector row and the popup share: the active-workspace key and the live store (drawn from the last store read until the file is read).
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, shared, setShared, closeOverlay, openOverlay, props, appHome, readTextFile, watchFolder } from "herdr";
-import { mkdir } from "fs/promises";
-import { loadStore, storePaths, storeFromShared, serializeStore, activeWorkspace, DEFAULT_ICON, WORKSPACE_COLORS, WORKSPACE_ICONS } from "./lib.js";
+import { theme, shared, setShared, closeOverlay, openOverlay, props, appHome, readTextFile, watchFolder, exec } from "herdr";
+import { ensureStoreDir, readStoreOnce, storeHome, storePaths, storeFromShared, serializeStore, activeWorkspace, DEFAULT_ICON, WORKSPACE_COLORS, WORKSPACE_ICONS } from "./lib.js";
 
 export const ACTIVE_KEY = "workspaces.active";
 export const ROW_HEIGHT = 32;
@@ -21,15 +20,21 @@ export const iconPath = (icon) => `mods/workspaces/${WORKSPACE_ICONS.includes(ic
  * Keeps `view.store` current while the view lives: other windows and mods write the file.
  * The first frame draws the last store read (held in shared state); every file read then replaces it,
  * and refreshes the shared copy only when it differs, so followers do not re-render each other.
+ * `view.storeRead` turns true once a file read has settled, whether the file was found or absent; a read that rejects
+ * leaves the last store in place and the loop waits on the folder and reads again.
  */
 export function followWorkspaceStore(view, cx) {
   view.store = storeFromShared(shared(STORE_CACHE_KEY));
-  const { dir, file } = storePaths(appHome());
+  const { dir, file } = storePaths(storeHome(shared("workspaces.home"), appHome()));
   cx.spawn(async (cx) => {
-    await mkdir(dir, { recursive: true });
+    await ensureStoreDir(exec, dir).catch(() => undefined);
     for (;;) {
-      view.store = (await loadStore(readTextFile, file)).store;
-      if (serializeStore(view.store) !== serializeStore(storeFromShared(shared(STORE_CACHE_KEY)))) setShared(STORE_CACHE_KEY, view.store);
+      const { store, read } = await readStoreOnce(readTextFile, file, view.store);
+      view.store = store;
+      if (read) {
+        if (serializeStore(view.store) !== serializeStore(storeFromShared(shared(STORE_CACHE_KEY)))) setShared(STORE_CACHE_KEY, view.store);
+        view.storeRead = true;
+      }
       cx.notify();
       await watchFolder(dir);
     }

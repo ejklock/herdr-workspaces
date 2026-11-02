@@ -14,6 +14,16 @@ export const WORKSPACE_COLORS = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5
 const FALLBACK_WORKSPACE_ICON = WORKSPACE_ICONS[0];
 const DEFAULT_COLOR = "ansi6";
 
+/**
+ * The app home whose workspace store this window uses: `workspaces.home` from the window's shared state
+ * when it is an absolute path, else the window's own app home. Trailing slashes are dropped.
+ */
+export function storeHome(sharedHome, appHome) {
+  if (typeof sharedHome !== "string" || !sharedHome.startsWith("/")) return appHome;
+  const home = sharedHome.replace(/\/+$/, "");
+  return home === "" ? appHome : home;
+}
+
 /** Where the store lives under an app home, and the folder to watch. */
 export function storePaths(appHome) {
   const dir = `${appHome}/workspaces`;
@@ -313,6 +323,75 @@ export function showsCoreRow(store, activeId) {
   return active !== undefined && !active.machine;
 }
 
+/** The shared key a freshly opened workspace window sets so its sidebar focuses the first listed space once. */
+export const FOCUS_KEY = "workspaces.focus-first";
+
+const WINDOWS_FOLDER = ".config/herdr-app-windows";
+// An underscore is outside the `[a-z0-9-]` workspace ids, so Default's folder never collides with a workspace's.
+const DEFAULT_WINDOW_FOLDER = "_default";
+const WORKSPACE_ID = /^[a-z0-9-]+$/;
+
+/**
+ * The app home of the Herdr window that shows one workspace: one folder per workspace under the user's home,
+ * reused. An absent id (Default) has its own folder. An id that is not a lowercase slug gives undefined.
+ */
+export function windowHome(userHome, id) {
+  const folder = id === undefined || id === null ? DEFAULT_WINDOW_FOLDER : typeof id === "string" && WORKSPACE_ID.test(id) ? id : undefined;
+  if (folder === undefined) return undefined;
+  return `${userHome.replace(/\/+$/, "")}/${WINDOWS_FOLDER}/${folder}`;
+}
+
+/**
+ * The shared state of a workspace window: the text of its existing shared.json with `layout`, the active
+ * workspace (null for Default), the main home that holds the store and the one-shot focus flag set.
+ * Every other key is kept; text that is absent or not a JSON object counts as no keys.
+ */
+export function windowShared(text, id, mainHome) {
+  let kept = {};
+  try {
+    const data = JSON.parse(text ?? "");
+    if (isRecord(data)) kept = data;
+  } catch {
+    // Unreadable text is replaced, not repaired.
+  }
+  return { ...kept, layout: "Workspaces", "workspaces.active": id ?? null, "workspaces.home": mainHome, [FOCUS_KEY]: true };
+}
+
+const WINDOW_SOURCES = [
+  { path: "mods/workspaces", dir: true },
+  { path: "mods/editor", dir: true, optional: true },
+  { path: "mods/my-files", dir: true, optional: true },
+  { path: "layouts/Workspaces.json", dir: false },
+  { path: "keys.json", dir: false, optional: true },
+  { path: "settings.json", dir: false, optional: true },
+  { path: "themes", dir: true, optional: true },
+];
+
+/** The optional sources of the main home the open plan mirrors when they exist, as paths relative to it. */
+export const OPTIONAL_WINDOW_SOURCES = WINDOW_SOURCES.filter((s) => s.optional).map((s) => s.path);
+
+/**
+ * What opening a workspace in a new Herdr window does, in order: check the window is not already running,
+ * make its folders, remove the layout file an earlier version named in lower case (the volume ignores case, so
+ * copying over it would keep the old spelling in the folder), mirror each source of the main home that `present` lists (the optional ones that exist),
+ * write its shared state, launch it. Writes only under the window's home. Gives undefined when the id has no
+ * window home or the window home is this window's own (`appHome`). `mainHome` is where the store lives.
+ */
+export function openPlan({ userHome, mainHome, id, appHome, present }) {
+  const home = windowHome(userHome, id);
+  if (home === undefined || home === appHome) return undefined;
+  const mirrors = WINDOW_SOURCES.filter((s) => !s.optional || present.includes(s.path))
+    .map((s) => ({ kind: "mirror", from: `${mainHome}/${s.path}`, to: `${home}/${s.path}`, dir: s.dir }));
+  return [
+    { kind: "running", socket: `${home}/herdr-app.sock` },
+    { kind: "folders", paths: [home, `${home}/mods`, `${home}/layouts`] },
+    { kind: "remove", path: `${home}/layouts/workspaces.json` },
+    ...mirrors,
+    { kind: "shared", path: `${home}/shared.json`, id, mainHome },
+    { kind: "launch", command: "/usr/bin/open", args: ["-n", "-b", "dev.herdr.app", "--env", `HERDR_APP_HOME=${home}`] },
+  ];
+}
+
 /** The groups of the active workspace, or of Default, in creation order; an id the store no longer holds counts as Default. */
 export function workspaceGroups(store, activeId) {
   const key = activeWorkspace(store, activeId)?.id;
@@ -361,6 +440,79 @@ export function arrangeRows(list) {
     kids.forEach((k, n) => out.push({ ...k, tree: n === kids.length - 1 ? "└─" : "├─", groupSpace: r.w.id }));
   }
   return out;
+}
+
+/** The id of the first space the sidebar draws for `rows` (from `arrangeRows`): the rows in no group, then each group; in a section the local rows precede the other machines'. */
+export function firstListedSpace(store, activeId, rows) {
+  for (const { rows: section } of sidebarSections(store, activeId, rows)) {
+    const machines = sidebarMachines(store, section.map((r) => r.w));
+    const first = section.find((r) => !machines.includes(r.w.machine)) ?? section.find((r) => r.w.machine === machines[0]);
+    if (first) return first.w.id;
+  }
+  return undefined;
+}
+
+/** Starts an open of the window home `key` in the set of homes being opened; false (nothing changed) when that home is already being opened. */
+export function beginOpen(opening, key) {
+  if (opening.has(key)) return false;
+  opening.add(key);
+  return true;
+}
+
+/** Frees the window home `key` once its open has ended, whether it succeeded or failed. */
+export function endOpen(opening, key) {
+  opening.delete(key);
+}
+
+/**
+ * One read of the store file through `read(path)`. Settles to the store to show and whether the file counts as read:
+ * a file found (valid or not) or absent counts; a read that rejects keeps `previous` and does not count.
+ */
+export async function readStoreOnce(read, path, previous) {
+  try {
+    return { store: (await loadStore(read, path)).store, read: true };
+  } catch {
+    return { store: previous, read: false };
+  }
+}
+
+/** Makes the store folder through the app's `exec` (a window's own file API cannot write in another home). Gives {} or { error } naming mkdir and why. */
+export async function ensureStoreDir(exec, dir) {
+  const result = await exec("/bin/mkdir", ["-p", dir]);
+  if (result.code === 0) return {};
+  return { error: `mkdir ${dir} failed: ${String(result.stderr ?? "").trim() || `exit code ${result.code}`}` };
+}
+
+/** How long a new window's home stays held for its socket to answer, and the pause between two probes. */
+export const OPEN_DEADLINE_MS = 15000;
+export const OPEN_PROBE_INTERVAL_MS = 1000;
+
+/**
+ * Runs an open of the window home `key` and holds the home in `opening` until the new window answers on its socket
+ * or the deadline passes. `start()` runs the steps and gives { error } (a failure, home freed at once), { launched: true }
+ * (the window was started; wait for it) or {} (nothing was started). Gives { refused: true } when the home is already held.
+ * `probe()` tells whether the socket answers; `sleep(ms)` and `now()` are the clock.
+ */
+export async function runOpen({ opening, key, start, probe, sleep, now }) {
+  if (key !== undefined && !beginOpen(opening, key)) return { refused: true };
+  try {
+    const started = await start();
+    if (started.error !== undefined) return { error: started.error };
+    if (!started.launched) return {};
+    const since = now();
+    while (!(await probe()) && now() - since < OPEN_DEADLINE_MS) await sleep(OPEN_PROBE_INTERVAL_MS);
+    return {};
+  } finally {
+    if (key !== undefined) endOpen(opening, key);
+  }
+}
+
+/**
+ * Whether a window opened with the focus flag may select its first space: the flag is set and the store has been
+ * read from disk; a workspace window also needs `active`, the workspace found in that store.
+ */
+export function focusReady({ flag, storeRead, id, active }) {
+  return Boolean(flag) && storeRead === true && (id === undefined || Boolean(active));
 }
 
 /** The fold key of a machine header in a section: `groupId` is undefined for the rows in no group. */

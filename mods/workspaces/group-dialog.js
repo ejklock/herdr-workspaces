@@ -3,9 +3,8 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, theme, closeOverlay, shared, spaces, appHome, readTextFile, writeTextFile } from "herdr";
-import { mkdir } from "fs/promises";
-import { storePaths, updateStore, createGroup, renameGroup, moveToGroup, newGroupId, activeWorkspace } from "./lib.js";
+import { props, theme, closeOverlay, shared, spaces, appHome, readTextFile, writeTextFile, exec } from "herdr";
+import { ensureStoreDir, storeHome, storePaths, updateStore, createGroup, renameGroup, moveToGroup, newGroupId, activeWorkspace } from "./lib.js";
 
 const files = { read: readTextFile, write: writeTextFile };
 
@@ -47,9 +46,9 @@ export default class GroupDialog extends View {
     cx.spawn(async (cx) => {
       let result;
       try {
-        const { dir, file } = storePaths(appHome());
-        await mkdir(dir, { recursive: true });
-        result = await updateStore(files, file, this.change());
+        const { dir, file } = storePaths(storeHome(shared("workspaces.home"), appHome()));
+        const made = await ensureStoreDir(exec, dir);
+        result = made.error ? { error: `Could not save: ${made.error}` } : await updateStore(files, file, this.change());
       } catch (e) {
         result = { error: `Could not save: ${e.message ?? e}` };
       }

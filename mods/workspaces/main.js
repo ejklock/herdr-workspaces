@@ -2,7 +2,7 @@
 // props { role }:
 //   spaces    the sidebar's spaces list, filtered by the active workspace
 //   agents    the sidebar's agents list, filtered by the active workspace, and its sort popup
-//   chrome    the brand row, and (footer: true) the footer with the workspace switcher
+//   chrome    the brand row, (selector: true) the workspace selector, and (footer: true) Settings and Add machine
 //   status    the status bar
 //   menu      a popup menu: a space's right-click menu, and the workspace list to move it to
 //   switcher  the popup that picks, creates and edits workspaces

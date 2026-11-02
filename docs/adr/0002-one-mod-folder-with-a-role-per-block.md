@@ -37,6 +37,6 @@ Rejected: only the new mods merged, the clones kept apart. The cloned sidebar an
 
 ## Verification
 
-**Implementation impact:** `mods/workspaces/`, `layouts/workspaces.json`, `bin/install`.
+**Implementation impact:** `mods/workspaces/`, `layouts/Workspaces.json`, `bin/install`.
 
-**Verification criteria:** `mods/` holds exactly one folder; `herdr-app check` passes on it; `layouts/workspaces.json` names no mod other than `workspaces` and Herdr's shipped ones.
+**Verification criteria:** `mods/` holds exactly one folder; `herdr-app check` passes on it; `layouts/Workspaces.json` names no mod other than `workspaces` and Herdr's shipped ones.

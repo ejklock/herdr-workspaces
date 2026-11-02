@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import {
   parseStore,
+  storeHome,
+  storePaths,
   serializeStore,
   createWorkspace,
   renameWorkspace,
@@ -33,6 +36,16 @@ import {
   workspaceGroups,
   spaceGroup,
   sidebarSections,
+  windowHome,
+  windowShared,
+  openPlan,
+  firstListedSpace,
+  beginOpen,
+  endOpen,
+  focusReady,
+  readStoreOnce,
+  ensureStoreDir,
+  runOpen,
 } from "./lib.js";
 import { menuItems, menuIcon } from "./menu-items.js";
 
@@ -1008,4 +1021,346 @@ test("folded away: a space is hidden only by its own section's fold of its machi
 test("no group: an entry naming a group of Default stays when another workspace lists the space", () => {
   const store = groupedStore([grp("g3", "Loose")], { "abby-stg/1": "g3" });
   assert.equal(moveToGroup(store, "base", everySpace, "abby-stg/1", undefined).store, store);
+});
+
+const ownHome = "/Users/x/.config/herdr-app-windows/id";
+
+test("store home: an absolute workspaces.home wins over this window's app home", () => {
+  assert.equal(storeHome("/Users/x/.config/herdr-app", ownHome), "/Users/x/.config/herdr-app");
+});
+
+test("store home: a trailing slash is dropped so the store paths have no double slash", () => {
+  const home = storeHome("/Users/x/.config/herdr-app/", ownHome);
+  assert.equal(home, "/Users/x/.config/herdr-app");
+  assert.equal(storePaths(home).file, "/Users/x/.config/herdr-app/workspaces/workspaces.json");
+});
+
+test("store home: an unusable workspaces.home falls back to this window's app home", () => {
+  for (const value of [undefined, null, "", "/", "herdr-app", "./x", 7, {}, ["/abs"], true]) {
+    assert.equal(storeHome(value, ownHome), ownHome, JSON.stringify(value));
+  }
+});
+
+test("store home: a workspaces.home equal to the app home gives the app home", () => {
+  assert.equal(storeHome(ownHome, ownHome), ownHome);
+});
+
+test("window home: a workspace's folder is named by its id under the windows folder", () => {
+  assert.equal(windowHome("/Users/x", "acme"), "/Users/x/.config/herdr-app-windows/acme");
+});
+
+test("window home: Default has a folder no workspace id can name", () => {
+  const home = windowHome("/Users/x", undefined);
+  assert.equal(home, "/Users/x/.config/herdr-app-windows/_default");
+  assert.equal(windowHome("/Users/x", null), home);
+  assert.equal(windowHome("/Users/x", "_default"), undefined);
+});
+
+test("window home: an id that is not a lowercase slug gets no path", () => {
+  for (const id of ["a/b", "..", "../x", "a b", "Acme", "", "a.b", 7, {}]) {
+    assert.equal(windowHome("/Users/x", id), undefined, JSON.stringify(id));
+  }
+});
+
+test("window home: a trailing slash on the user's home builds no double slash", () => {
+  assert.equal(windowHome("/Users/x/", "acme"), "/Users/x/.config/herdr-app-windows/acme");
+});
+
+test("window shared: Herdr's own keys stay and the four window keys are set", () => {
+  const text = JSON.stringify({ "sidebar.width": 268, "space.colors": { a: "ansi1" }, layout: "main" });
+  assert.deepEqual(windowShared(text, "acme", "/Users/x/.config/herdr-app"), {
+    "sidebar.width": 268,
+    "space.colors": { a: "ansi1" },
+    layout: "Workspaces",
+    "workspaces.active": "acme",
+    "workspaces.home": "/Users/x/.config/herdr-app",
+    "workspaces.focus-first": true,
+  });
+});
+
+test("window shared: an absent, malformed or non-object file gives just the window keys", () => {
+  const only = { layout: "Workspaces", "workspaces.active": null, "workspaces.home": "/h", "workspaces.focus-first": true };
+  for (const text of [null, undefined, "", "{not json", "[1,2]", "7", "null", '"x"']) {
+    assert.deepEqual(windowShared(text, undefined, "/h"), only, String(text));
+  }
+});
+
+test("window shared: another workspace's active id is replaced, and Default is null", () => {
+  const text = JSON.stringify({ "workspaces.active": "other", "workspaces.home": "/old" });
+  assert.equal(windowShared(text, "acme", "/h")["workspaces.active"], "acme");
+  assert.equal(windowShared(text, "acme", "/h")["workspaces.home"], "/h");
+  assert.equal(windowShared(text, undefined, "/h")["workspaces.active"], null);
+});
+
+const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "themes", "keys.json", "settings.json"] };
+const WIN = "/Users/x/.config/herdr-app-windows/acme";
+const targetsOf = (step) => [step.paths, step.to, step.path].flat().filter((p) => typeof p === "string");
+
+test("open plan: checks the window is not running, makes folders, mirrors, writes shared state, then launches", () => {
+  const plan = openPlan(planInput);
+  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(7).fill("mirror"), "shared", "launch"]);
+  assert.equal(plan[0].socket, `${WIN}/herdr-app.sock`);
+  assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => [s.from, s.to, s.dir]), [
+    ["/Users/x/.config/herdr-app/mods/workspaces", `${WIN}/mods/workspaces`, true],
+    ["/Users/x/.config/herdr-app/mods/editor", `${WIN}/mods/editor`, true],
+    ["/Users/x/.config/herdr-app/mods/my-files", `${WIN}/mods/my-files`, true],
+    ["/Users/x/.config/herdr-app/layouts/Workspaces.json", `${WIN}/layouts/Workspaces.json`, false],
+    ["/Users/x/.config/herdr-app/keys.json", `${WIN}/keys.json`, false],
+    ["/Users/x/.config/herdr-app/settings.json", `${WIN}/settings.json`, false],
+    ["/Users/x/.config/herdr-app/themes", `${WIN}/themes`, true],
+  ]);
+  assert.deepEqual(plan.at(-2), { kind: "shared", path: `${WIN}/shared.json`, id: "acme", mainHome: "/Users/x/.config/herdr-app" });
+});
+
+test("open plan: writes only inside the window home and never inside the main home", () => {
+  for (const step of openPlan(planInput)) {
+    for (const target of targetsOf(step)) {
+      assert.ok(target === WIN || target.startsWith(`${WIN}/`), target);
+      assert.ok(!target.startsWith("/Users/x/.config/herdr-app/"), target);
+    }
+  }
+});
+
+test("open plan: a source that is absent gets no step", () => {
+  const plan = openPlan({ ...planInput, present: [] });
+  assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => s.to), [`${WIN}/mods/workspaces`, `${WIN}/layouts/Workspaces.json`]);
+});
+
+test("open plan: the earlier lower-case layout file is removed before the mirror copies the new one", () => {
+  for (const present of [planInput.present, []]) {
+    const plan = openPlan({ ...planInput, present });
+    const removal = plan.findIndex((s) => s.kind === "remove");
+    assert.deepEqual(plan[removal], { kind: "remove", path: `${WIN}/layouts/workspaces.json` });
+    assert.ok(removal > plan.findIndex((s) => s.kind === "folders"));
+    assert.ok(removal < plan.findIndex((s) => s.kind === "mirror" && s.to === `${WIN}/layouts/Workspaces.json`));
+  }
+});
+
+test("open plan: an id with no window home gives no plan", () => {
+  assert.equal(openPlan({ ...planInput, id: "Acme" }), undefined);
+});
+
+test("open plan: a window home equal to this window's app home gives no plan", () => {
+  assert.equal(openPlan({ ...planInput, appHome: WIN }), undefined);
+});
+
+test("open plan: launches a new Herdr process with the window home as its app home", () => {
+  assert.deepEqual(openPlan(planInput).at(-1), { kind: "launch", command: "/usr/bin/open", args: ["-n", "-b", "dev.herdr.app", "--env", `HERDR_APP_HOME=${WIN}`] });
+});
+
+test("open plan: Default opens its own folder and sets no active workspace", () => {
+  const plan = openPlan({ ...planInput, id: undefined });
+  const dflt = "/Users/x/.config/herdr-app-windows/_default";
+  assert.equal(plan.at(-1).args.at(-1), `HERDR_APP_HOME=${dflt}`);
+  assert.equal(plan.at(-2).id, undefined);
+});
+
+test("open plan: from a workspace window it copies from the main home the window's shared state names", () => {
+  const inside = { ...planInput, appHome: "/Users/x/.config/herdr-app-windows/beta" };
+  const plan = openPlan({ ...inside, mainHome: storeHome("/Users/x/.config/herdr-app", inside.appHome) });
+  assert.equal(plan.find((s) => s.kind === "mirror").from, "/Users/x/.config/herdr-app/mods/workspaces");
+  assert.equal(plan.at(-2).mainHome, "/Users/x/.config/herdr-app");
+});
+
+const listedRow = (id, extra = {}) => ({ w: { id, name: id }, i: 0, g: null, ...extra });
+const wsStore = (groups, grouped) => ({ version: 1, workspaces: [{ id: "base", name: "Base", icon: "folder", color: "ansi6" }], assign: {}, groups, grouped });
+
+test("first listed space: a space in no group comes before every group", () => {
+  const store = wsStore([{ id: "g1", name: "G", workspace: "base" }], { b: "g1" });
+  assert.equal(firstListedSpace(store, "base", arrangeRows([listedRow("b"), listedRow("a")])), "a");
+});
+
+test("first listed space: with spaces only in groups it is the first group's first space", () => {
+  const store = wsStore([{ id: "g1", name: "One", workspace: "base" }, { id: "g2", name: "Two", workspace: "base" }], { c: "g2", b: "g1", a: "g1" });
+  assert.equal(firstListedSpace(store, "base", arrangeRows([listedRow("c"), listedRow("b"), listedRow("a")])), "b");
+});
+
+test("first listed space: an empty workspace gives none", () => {
+  assert.equal(firstListedSpace(wsStore([], {}), "base", []), undefined);
+  assert.equal(firstListedSpace(wsStore([{ id: "g1", name: "One", workspace: "base" }], {}), "base", []), undefined);
+});
+
+test("first listed space: a worktree is never chosen ahead of its main checkout", () => {
+  const repo = JSON.stringify([null, "/r/.git"]);
+  const rows = arrangeRows([listedRow("wt", { g: { repo, linked: true } }), listedRow("main", { g: { repo, linked: false } })]);
+  assert.equal(firstListedSpace(wsStore([], {}), "base", rows), "main");
+});
+
+test("first listed space: a local space comes before the spaces under another machine's header", () => {
+  const rows = arrangeRows([{ w: { id: "far", name: "far", machine: "m1" }, i: 0, g: null }, listedRow("near")]);
+  assert.equal(firstListedSpace(wsStore([], {}), "base", rows), "near");
+});
+
+test("an open of a window home already being opened is refused, and the home is free once that open ends", () => {
+  const opening = new Set();
+  assert.equal(beginOpen(opening, "/h/a"), true);
+  assert.equal(beginOpen(opening, "/h/a"), false);
+  assert.equal(beginOpen(opening, "/h/b"), true);
+  endOpen(opening, "/h/a");
+  assert.equal(beginOpen(opening, "/h/a"), true);
+  assert.equal(beginOpen(opening, "/h/b"), false);
+});
+
+test("a home is free again after an open that failed", () => {
+  const opening = new Set();
+  beginOpen(opening, "/h/a");
+  try {
+    throw new Error("boom");
+  } catch {
+    // the failed open still releases its home
+  } finally {
+    endOpen(opening, "/h/a");
+  }
+  assert.equal(beginOpen(opening, "/h/a"), true);
+});
+
+test("the first space is selected only with the focus flag, a store read from disk, and the workspace in it", () => {
+  const present = { id: "base" };
+  assert.equal(focusReady({ flag: false, storeRead: true, id: undefined, active: undefined }), false);
+  assert.equal(focusReady({ flag: false, storeRead: true, id: "base", active: present }), false);
+  assert.equal(focusReady({ flag: true, storeRead: false, id: undefined, active: undefined }), false);
+  assert.equal(focusReady({ flag: true, storeRead: true, id: undefined, active: undefined }), true);
+  assert.equal(focusReady({ flag: true, storeRead: false, id: "base", active: present }), false);
+  assert.equal(focusReady({ flag: true, storeRead: true, id: "base", active: undefined }), false);
+  assert.equal(focusReady({ flag: true, storeRead: true, id: "base", active: present }), true);
+});
+
+const VALID_TEXT = serializeStore({ version: 1, workspaces: [{ id: "w1", name: "Acme", icon: "layers", color: "accent" }], assign: {} });
+const KEPT = storeFromShared({ version: 1, workspaces: [{ id: "k", name: "Kept", icon: "layers", color: "accent" }], assign: {} });
+
+test("a store read that finds a valid file gives that store, counted as read", async () => {
+  const result = await readStoreOnce(async () => VALID_TEXT, "/f", KEPT);
+  assert.deepEqual(result.store.workspaces.map((w) => w.id), ["w1"]);
+  assert.equal(result.read, true);
+});
+
+test("a store read that finds no file gives the empty store, counted as read", async () => {
+  const result = await readStoreOnce(async () => null, "/f", KEPT);
+  assert.deepEqual(result.store, parseStore(undefined).store);
+  assert.equal(result.read, true);
+});
+
+test("a store read that rejects keeps the previous store and is not counted as read", async () => {
+  const result = await readStoreOnce(async () => { throw new Error("denied"); }, "/f", KEPT);
+  assert.equal(result.store, KEPT);
+  assert.equal(result.read, false);
+});
+
+test("a store read that finds malformed JSON gives what the parser gives, counted as read", async () => {
+  const result = await readStoreOnce(async () => "{not json", "/f", KEPT);
+  assert.deepEqual(result.store, parseStore("{not json").store);
+  assert.equal(result.read, true);
+});
+
+test("a store read that finds the file after a rejected one gives that store, counted as read", async () => {
+  let calls = 0;
+  const read = async () => { calls += 1; if (calls === 1) throw new Error("denied"); return VALID_TEXT; };
+  const first = await readStoreOnce(read, "/f", KEPT);
+  const second = await readStoreOnce(read, "/f", first.store);
+  assert.equal(first.read, false);
+  assert.deepEqual(second.store.workspaces.map((w) => w.id), ["w1"]);
+  assert.equal(second.read, true);
+});
+
+test("the store folder is made with mkdir -p through the given exec", async () => {
+  const calls = [];
+  const result = await ensureStoreDir(async (...args) => { calls.push(args); return { code: 0, stderr: "" }; }, "/h/workspaces");
+  assert.deepEqual(calls, [["/bin/mkdir", ["-p", "/h/workspaces"]]]);
+  assert.equal(result.error, undefined);
+});
+
+test("a store folder that cannot be made names mkdir and its stderr, or its exit code when stderr is empty", async () => {
+  const withStderr = await ensureStoreDir(async () => ({ code: 1, stderr: "denied\n" }), "/d");
+  assert.match(withStderr.error, /mkdir/);
+  assert.match(withStderr.error, /denied/);
+  const silent = await ensureStoreDir(async () => ({ code: 7, stderr: "" }), "/d");
+  assert.match(silent.error, /mkdir/);
+  assert.match(silent.error, /7/);
+});
+
+function openFlow({ start, answersAt = Infinity, opening = new Set() }) {
+  const log = { probes: 0, sleeps: 0, starts: 0, clock: 0 };
+  const io = {
+    opening,
+    key: "/h/a",
+    start: async () => { log.starts += 1; return start(); },
+    probe: async () => { log.probes += 1; return log.probes >= answersAt; },
+    sleep: async (ms) => { log.sleeps += 1; log.clock += ms; },
+    now: () => log.clock,
+  };
+  return { io, log, opening };
+}
+
+test("an open whose step before the launch fails frees its home at once and waits for nothing", async () => {
+  const { io, log, opening } = openFlow({ start: async () => ({ error: "Copying: boom" }) });
+  const result = await runOpen(io);
+  assert.deepEqual(result, { error: "Copying: boom" });
+  assert.equal(log.probes, 0);
+  assert.equal(opening.has("/h/a"), false);
+});
+
+test("an open whose launch fails frees its home at once and waits for nothing", async () => {
+  const { io, log, opening } = openFlow({ start: async () => ({ error: "Starting Herdr: no" }) });
+  const result = await runOpen(io);
+  assert.deepEqual(result, { error: "Starting Herdr: no" });
+  assert.equal(log.probes, 0);
+  assert.equal(opening.has("/h/a"), false);
+});
+
+test("an open that launches holds its home through the probes and frees it once the socket answers", async () => {
+  const opening = new Set();
+  const held = [];
+  const { io, log } = openFlow({ start: async () => ({ launched: true }), answersAt: 3, opening });
+  const probe = io.probe;
+  io.probe = async () => { held.push(opening.has("/h/a")); return probe(); };
+  const result = await runOpen(io);
+  assert.deepEqual(result, {});
+  assert.equal(log.probes, 3);
+  assert.deepEqual(held, [true, true, true]);
+  assert.equal(opening.has("/h/a"), false);
+});
+
+test("an open whose socket never answers frees its home once 15 seconds have passed", async () => {
+  const { io, log, opening } = openFlow({ start: async () => ({ launched: true }) });
+  const heldAt = [];
+  const probe = io.probe;
+  io.probe = async () => { heldAt.push([log.clock, opening.has("/h/a")]); return probe(); };
+  const result = await runOpen(io);
+  assert.deepEqual(result, {});
+  assert.ok(log.clock >= 15000, `waited only ${log.clock} ms`);
+  assert.ok(log.clock < 17000, `waited ${log.clock} ms`);
+  assert.ok(heldAt.every(([at, held]) => (at < 15000 ? held : true)));
+  assert.equal(opening.has("/h/a"), false);
+});
+
+test("a second open of a home being held is refused and runs nothing, while another home is allowed and the same home is allowed after the release", async () => {
+  const opening = new Set();
+  const first = openFlow({ start: async () => ({ launched: true }), answersAt: 2, opening });
+  const second = openFlow({ start: async () => ({ launched: true }), answersAt: 1, opening });
+  const other = openFlow({ start: async () => ({ launched: true }), answersAt: 1, opening });
+  other.io.key = "/h/b";
+  let refused;
+  let allowed;
+  const probe = first.io.probe;
+  first.io.probe = async () => {
+    refused ??= await runOpen(second.io);
+    allowed ??= await runOpen(other.io);
+    return probe();
+  };
+  await runOpen(first.io);
+  assert.deepEqual(refused, { refused: true });
+  assert.equal(second.log.starts, 0);
+  assert.equal(second.log.probes, 0);
+  assert.deepEqual(allowed, {});
+  assert.equal(other.log.starts, 1);
+  const again = await runOpen(second.io);
+  assert.deepEqual(again, {});
+  assert.equal(second.log.starts, 1);
+});
+
+test("the mod's sources hold no masked placeholder in place of their own text", () => {
+  const dir = new URL(".", import.meta.url);
+  const placeholder = "MASKED by " + "secret-mask";
+  const tainted = readdirSync(dir).filter((name) => name.endsWith(".js") && readFileSync(new URL(name, dir), "utf8").includes(placeholder));
+  assert.deepEqual(tainted, []);
 });
