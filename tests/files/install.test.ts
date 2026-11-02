@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 const script = join(import.meta.dirname, "..", "..", "bin", "install-files");
 const svgs = ["chevron-down.svg", "chevron-right.svg", "file.svg", "folder.svg"];
+const icons = ["icons/nodejs.svg", "icons/folder-src-open.svg"];
 
 let root: string;
 let repo: string;
@@ -30,6 +31,7 @@ beforeEach(() => {
   copyFileSync(script, join(repo, "bin", "install-files"));
   chmodSync(join(repo, "bin", "install-files"), 0o755);
   for (const name of ["main.js", "mod.json", ...svgs]) write(source(name), `src ${name}`);
+  for (const name of icons) write(source(name), `icon ${name}`);
   for (const name of ["main.js", "tree.js"]) write(source(`files/${name}`), `built ${name}`);
   for (const name of ["gpui-kit.d.ts", "jsconfig.json", "files/gpui-kit.d.ts", "files/tree.d.ts", "files/tree.test.js"]) write(source(name), "not shipped");
   mkdirSync(home, { recursive: true });
@@ -42,7 +44,7 @@ describe("installing my-files", () => {
     const run = install(home);
     assert.equal(run.status, 0, run.stderr);
     assert.equal(lstatSync(target()).isSymbolicLink(), false);
-    assert.deepEqual(tree(target()), [".installed-from", ...svgs, "files/main.js", "files/tree.js", "main.js", "mod.json"].sort());
+    assert.deepEqual(tree(target()), [".installed-from", ...svgs, ...icons, "files/main.js", "files/tree.js", "main.js", "mod.json"].sort());
     assert.equal(readFileSync(target(".installed-from"), "utf8"), repo);
     assert.equal(readFileSync(target("files/main.js"), "utf8"), "built main.js");
   });
@@ -137,6 +139,51 @@ describe("installing my-files", () => {
     assert.deepEqual(readdirSync(outside), ["keep.txt"]);
     assert.equal(lstatSync(target("files")).isDirectory(), true);
     assert.equal(readFileSync(target("files/main.js"), "utf8"), "built main.js");
+  });
+
+  it("copies the icons as real files and removes one gone from the source", () => {
+    assert.equal(install(home).status, 0);
+    assert.equal(readFileSync(target("icons/nodejs.svg"), "utf8"), "icon icons/nodejs.svg");
+    assert.equal(lstatSync(target("icons/nodejs.svg")).isFile(), true);
+    rmSync(source("icons/nodejs.svg"));
+    assert.equal(install(home).status, 0);
+    assert.equal(existsSync(target("icons/nodejs.svg")), false);
+    assert.ok(existsSync(target("icons/folder-src-open.svg")));
+  });
+
+  it("removes a link planted for an icon instead of writing through it", () => {
+    assert.equal(install(home).status, 0);
+    const outside = join(root, "outside.txt");
+    writeFileSync(outside, "untouched");
+    rmSync(target("icons/nodejs.svg"));
+    symlinkSync(outside, target("icons/nodejs.svg"));
+    const run = install(home);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(readFileSync(outside, "utf8"), "untouched");
+    assert.equal(lstatSync(target("icons/nodejs.svg")).isSymbolicLink(), false);
+    assert.equal(readFileSync(target("icons/nodejs.svg"), "utf8"), "icon icons/nodejs.svg");
+  });
+
+  it("replaces an icons folder that is a link to elsewhere with a real folder instead of writing through it", () => {
+    assert.equal(install(home).status, 0);
+    const outside = join(root, "outside-icons");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "keep.svg"), "untouched");
+    rmSync(target("icons"), { recursive: true });
+    symlinkSync(outside, target("icons"));
+    const run = install(home);
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(readdirSync(outside), ["keep.svg"]);
+    assert.equal(lstatSync(target("icons")).isDirectory(), true);
+    assert.equal(readFileSync(target("icons/nodejs.svg"), "utf8"), "icon icons/nodejs.svg");
+  });
+
+  it("leaves the icons identical on a second run", () => {
+    assert.equal(install(home).status, 0);
+    const first = tree(target("icons"));
+    assert.equal(install(home).status, 0);
+    assert.deepEqual(tree(target("icons")), first);
+    assert.equal(readFileSync(target("icons/folder-src-open.svg"), "utf8"), "icon icons/folder-src-open.svg");
   });
 
   it("removes a link planted for the marker instead of writing through it", () => {

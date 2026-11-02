@@ -1,8 +1,10 @@
 // A lazy file browser for the focused pane's folder; a click on a file opens it in an editor pane.
-import { View, div, svg } from "gpui-kit";
+import { View, div, svg, image } from "gpui-kit";
 import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, panes, focused, exec, run, shared, watchFolder, theme, window } from "herdr";
+import { spaces, panes, focused, exec, run, shared, watchFolder, theme, window, settings } from "herdr";
+import { iconId } from "./icons.ts";
+import iconTable from "./icon-table.ts";
 import { openTarget, treeLocation, gitMarks, parseDirectory, limitEntries, TOTAL, type Entry, type Location, type TreeClaims } from "./tree.ts";
 
 type Hex = `#${string}`;
@@ -10,6 +12,11 @@ type Colors = Record<string, Hex>;
 
 const colorsOf = (t: Record<string, string>): Colors =>
   Object.fromEntries(Object.entries(t).map(([name, v]) => [name, v.startsWith("#") ? (v as Hex) : "#808080"]));
+
+const markColor = (mark: string | undefined, t: Colors): Hex => (mark === "A" ? t["ansi2"]! : mark === "D" || mark === "U" ? t["ansi1"]! : t["blocked"]!);
+
+const chevron = (dir: boolean, open: boolean, t: Colors): Element =>
+  dir ? svg(`mods/my-files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t["dim"]!) : div().w(12).flex_none();
 
 export default class Files extends View {
   private entries = new Map<string, Entry[]>();
@@ -23,6 +30,7 @@ export default class Files extends View {
   private loading = false;
   private limited = false;
   private error: string | null = null;
+  private dark = true;
 
   override init(_props: unknown, cx: AsyncContext): void {
     this.refresh(cx);
@@ -142,10 +150,10 @@ export default class Files extends View {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t["hover"]!))
         .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.open(path, cx))
-        .child(entry.dir ? svg(`mods/my-files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t["dim"]!) : div().w(12).flex_none())
-        .child(svg(`mods/my-files/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t["muted"]!))
+        .child(chevron(entry.dir, open, t))
+        .child(image(`mods/my-files/icons/${iconId(iconTable, path, { dir: entry.dir, open, dark: this.dark })}.svg`).size(16).flex_none())
         .child(div().flex_1().min_w(0).truncate().child(entry.name))
-        .when(Boolean(mark), el => el.child(div().text_size(11).text_color(mark === "A" ? t["ansi2"]! : mark === "D" || mark === "U" ? t["ansi1"]! : t["blocked"]!).child(mark ?? ""))));
+        .when(Boolean(mark), el => el.child(div().text_size(11).text_color(markColor(mark, t)).child(mark ?? ""))));
       if (entry.dir && open) this.rows(path, depth + 1, out, t);
     }
     return out;
@@ -154,6 +162,7 @@ export default class Files extends View {
   override render(cx: Context): Element {
     if (this.key() !== this.context) this.refresh(cx);
     const t = colorsOf(theme());
+    this.dark = Boolean(settings()["dark"]);
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t["background"]!).border_1().border_color(t["border"]!).text_color(t["foreground"]!).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t["border"]!)
         .child(div().font_semibold().child("Files"))

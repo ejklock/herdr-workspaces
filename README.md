@@ -80,7 +80,7 @@ The header's "Open in Fresh" button (and `herdr-app do editor.fresh`, which take
 
 ## The my-files mod
 
-`my-files` is the shipped Files mod's lazy tree (folders on demand, git status marks A, M, D and U, a folder watch, a 10 s refresh, at most 500 entries per folder and 5,000 in all) with one change: a click on a file opens it in the editor instead of a preview. Source: `src/files/` (the click and location rules and the listing and git parsing are in `src/files/tree.ts`, free of the app's modules); output: `mods/my-files/files/*.js`, behind the committed `mods/my-files/main.js`. The four icons and `mod.json` are copied from the shipped mod, with asset paths under `mods/my-files/`. Install it with `npm run install:files`, as shown under Build and install.
+`my-files` is the shipped Files mod's lazy tree (folders on demand, git status marks A, M, D and U, a folder watch, a 10 s refresh, at most 500 entries per folder and 5,000 in all) with two changes: a click on a file opens it in the editor instead of a preview, and each file and folder is drawn with its colored Material Icon Theme icon (open-folder variants for expanded folders, light variants when the app is not dark). Source: `src/files/` (the click and location rules and the listing and git parsing are in `src/files/tree.ts`, the icon lookup in `src/files/icons.ts` over the table in `src/files/icon-table.ts`, both free of the app's modules); output: `mods/my-files/files/*.js`, behind the committed `mods/my-files/main.js`. The two chevrons and `mod.json` are copied from the shipped mod, with asset paths under `mods/my-files/`. The icons are the 1184 SVGs in `mods/my-files/icons/`, copied unchanged with the table from the herdr.dev mod amster93/herdr-file-icons (Apache-2.0, `mods/my-files/LICENSE-herdr-file-icons.txt`), which generated them from material-icon-theme 5.40.0 (MIT, `mods/my-files/icons/LICENSE-material-icon-theme.txt`). `bin/install-files` copies the `icons/` folder as real files too. Install it with `npm run install:files`, as shown under Build and install.
 
 Click rules:
 
@@ -94,7 +94,7 @@ Which pane shows which file is read from the editor's `shared("editor.claims")`.
 
 ## Owner-run check of the my-files click
 
-1. Run `npm run install:files`, then open a pane: `herdr-app do pane.split --direction right --mod my-files`. The tree shows the focused terminal's folder with folder and file icons (if the icons are missing, the mod is a link, not a copy, which is the proven cause: run `npm run install:files`, which replaces a link with a real folder).
+1. Run `npm run install:files`, then open a pane: `herdr-app do pane.split --direction right --mod my-files`. The tree shows the focused terminal's folder with a colored icon for each file type and folder, such as a TypeScript icon for `.ts` files and a different icon for `src` and `node_modules` folders, the open variant on an expanded folder (if the icons are missing, the mod is a link, not a copy, which is the proven cause: run `npm run install:files`, which replaces a link with a real folder).
 2. Click a file: an editor pane opens to the right of the pane that had focus, showing the file.
 3. Click the tree, then the same file again: the editor pane gets focus, no second pane opens.
 4. Click another file: a second editor pane opens right of the focused pane; the first stays.
