@@ -7,3 +7,4 @@
 * [0003 — Space groups in the sidebar](0003-space-groups-in-the-sidebar.md) - open
 * [0004 — Editor plugin moved into the repository](0004-editor-plugin-moved-into-the-repository.md) - open
 * [0005 — Editor plugin builds on any machine with Herdr installed](0005-editor-plugin-builds-on-any-machine-with-herdr-installed.md) - open
+* [0006 — Changes panel opens a side-by-side diff in a pane](0006-changes-panel-opens-a-side-by-side-diff-in-a-pane.md) - open
