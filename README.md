@@ -32,18 +32,20 @@ bin/install ~/.config/herdr-app
 The script copies `mods/workspaces` (without tests and editor files) and `layouts/Workspaces.json` (replacing an earlier `workspaces.json` it installed) into
 the app home; Herdr draws a mod's icons and reloads its edits only from real files, not links. Rerun it
 after each change: Herdr picks the edit up in the open window. The copy carries a `.installed-from` file
-naming the project (`herdr-workspaces`), not the checkout. The layout's side-panel Files block uses the `my-files` mod when the editor
-plugin is installed (the default), and Herdr's `files` with `--without editor`. A rerun replaces a copy made from any checkout of the project (an earlier marker holding a checkout path counts too) or an earlier link into this repository and refuses anything else (another folder, a foreign
+naming the project (`herdr-workspaces`), not the checkout. The layout's side-panel Files and Changes blocks use the `my-files` and `my-changes` mods when the editor
+plugin is installed (the default), and Herdr's `files` and `changes` with `--without editor`. A rerun replaces a copy made from any checkout of the project (an earlier marker holding a checkout path counts too) or an earlier link into this repository and refuses anything else (another folder, a foreign
 link, a layout file it did not make), checking every target and the source layout before writing any. After updating from an install that used the earlier `workspaces` layout, pick Workspaces once in Settings; this starts Herdr's per-layout clicks (sidebar width, the layout's theme picks) fresh.
 
 ## Plugins
 
 `bin/install` also installs the editor plugin from `plugins/editor/` by default; `bin/install --without editor
-<app home>` skips it, builds nothing and leaves any editor or `my-files` copy already in the app home
-untouched (the layout then goes back to Herdr's `files`). The plugin adds:
+<app home>` skips it, builds nothing and leaves any editor, `my-files`, `my-changes` or `my-diff` copy already in the app home
+untouched (the layout then goes back to Herdr's `files` and `changes`). The plugin adds:
 
 - `editor`: an editable file editor pane (save, formatters, conflict handling).
 - `my-files`: the side-panel file tree, whose click opens a file in the editor, with a colored icon for each file type.
+- `my-changes`: the side-panel list of changed files (the Changes block), whose click opens the file in `my-diff`.
+- `my-diff`: a side-by-side diff pane of one file, HEAD against the working tree.
 
 The plugin is TypeScript, so installing it needs Node and the `typescript` package (`npm install` at the
 root of this repository) to build; the workspaces mod needs neither. The build reads Herdr's type files from the app home (`HERDR_APP_HOME`, else `~/.config/herdr-app`).
@@ -86,7 +88,7 @@ Herdr warns installers about mods that reach the network, run programs or read f
 - Runs `hc machine ls --json` through `hc` every 15 seconds to list attached machines (`spaces.js`), and once when the workspace dialog opens, to list the cores to pick (`dialog.js`).
 - Reads and writes `<store home>/workspaces/workspaces.json` (creating the folder), where the store home is the absolute path in the shared key `workspaces.home` when set, else this window's app home, and watches that folder for changes by other windows.
 - Watches the git folder of each local repository a space is in, to refresh the branch and ahead/behind marks.
-- Opens a workspace in a new window when the window icon is clicked (`window.js`): `/bin/test -e` on the optional sources, `/usr/bin/nc` on the window's socket to tell whether it already runs, `/bin/mkdir -p`, `/bin/rm -f` on the window's earlier `layouts/workspaces.json`, `/usr/bin/rsync -aL --delete` and `/bin/cp -f` into `~/.config/herdr-app-windows/<id>/` only, then `/usr/bin/open -n -b dev.herdr.app --env HERDR_APP_HOME=<that folder>`. It mirrors from the main home the mods `workspaces`, `editor` and `my-files`, `layouts/Workspaces.json`, `keys.json`, `settings.json` and `themes/` (those that exist), and writes the window's `shared.json` (`layout`, `workspaces.active`, `workspaces.home` and `workspaces.focus-first`, keeping its other keys). It never writes in the main home. A failed step shows as a notification naming it.
+- Opens a workspace in a new window when the window icon is clicked (`window.js`): `/bin/test -e` on the optional sources, `/usr/bin/nc` on the window's socket to tell whether it already runs, `/bin/mkdir -p`, `/bin/rm -f` on the window's earlier `layouts/workspaces.json`, `/usr/bin/rsync -aL --delete` and `/bin/cp -f` into `~/.config/herdr-app-windows/<id>/` only, then `/usr/bin/open -n -b dev.herdr.app --env HERDR_APP_HOME=<that folder>`. It mirrors from the main home the mods `workspaces`, `editor`, `my-files`, `my-changes` and `my-diff`, `layouts/Workspaces.json`, `keys.json`, `settings.json` and `themes/` (those that exist), and writes the window's `shared.json` (`layout`, `workspaces.active`, `workspaces.home` and `workspaces.focus-first`, keeping its other keys). It never writes in the main home. A failed step shows as a notification naming it.
 - Uses the shared state keys `workspaces.active`, `workspaces.home` (read only), `workspaces.focus-first` (set in a new workspace window, cleared once the first space is selected) and `workspaces.store`, and, as the shipped mods do, `space.colors`, `agents.sort`, `sidebar.width`, `sidebar.collapsed` and the `localStorage` keys `machines.folded` (one entry per machine header and section, so folding it under one group leaves it open under the others), `groups.folded`, `changed` and `pins`.
 - Draws icons from its own folder and from the shipped `mods/workspace-chrome/` folder.
 

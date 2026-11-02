@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "outDir": "mods/my-changes" },
+  "include": ["src/list/**/*.ts"]
+}

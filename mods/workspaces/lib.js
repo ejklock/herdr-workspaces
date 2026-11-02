@@ -361,6 +361,8 @@ const WINDOW_SOURCES = [
   { path: "mods/workspaces", dir: true },
   { path: "mods/editor", dir: true, optional: true },
   { path: "mods/my-files", dir: true, optional: true },
+  { path: "mods/my-changes", dir: true, optional: true },
+  { path: "mods/my-diff", dir: true, optional: true },
   { path: "layouts/Workspaces.json", dir: false },
   { path: "keys.json", dir: false, optional: true },
   { path: "settings.json", dir: false, optional: true },

@@ -32,6 +32,10 @@ for (const f of ["editor/main.js", "format/run.js"]) {
 }
 mkdirSync("mods/my-files/files", { recursive: true });
 writeFileSync("mods/my-files/files/main.js", "built files/main.js");
+mkdirSync("mods/my-changes/list", { recursive: true });
+writeFileSync("mods/my-changes/list/main.js", "built list/main.js");
+mkdirSync("mods/my-diff/changes", { recursive: true });
+writeFileSync("mods/my-diff/changes/pane.js", "built changes/pane.js");
 `;
 
 // A copy of the repository with a plugin whose build writes small files, so a test can alter the
@@ -51,6 +55,10 @@ function stubRepo({ layoutText = repoLayout, build = "node build.mjs" } = {}) {
     ["mods/my-files/main.js", "export {};"],
     ["mods/my-files/mod.json", "{}"],
     ["mods/my-files/icons/a.svg", "<svg/>"],
+    ["mods/my-changes/main.js", "export {};"],
+    ["mods/my-changes/mod.json", "{}"],
+    ["mods/my-diff/main.js", "export {};"],
+    ["mods/my-diff/mod.json", "{}"],
   ]) {
     mkdirSync(join(plugin, path, ".."), { recursive: true });
     writeFileSync(join(plugin, path), text);
@@ -106,12 +114,12 @@ afterEach(() => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-test("with no flag the workspaces, editor and my-files mods are copied as real folders each carrying its marker", () => {
+test("with no flag the workspaces, editor, my-files, my-changes and my-diff mods are copied as real folders each carrying its marker", () => {
   const home = freshHome();
   const stub = stubRepo();
   const run = install(home, { installScript: stub.script });
   assert.equal(run.status, 0, run.stderr);
-  for (const mod of ["workspaces", "editor", "my-files"]) {
+  for (const mod of ["workspaces", "editor", "my-files", "my-changes", "my-diff"]) {
     const dir = join(home, "mods", mod);
     assert.equal(lstatSync(dir).isSymbolicLink(), false);
     assert.equal(readFileSync(join(dir, ".installed-from"), "utf8"), "herdr-workspaces");
@@ -121,17 +129,23 @@ test("with no flag the workspaces, editor and my-files mods are copied as real f
   assert.equal(readFileSync(join(home, "mods", "editor", "format", "run.js"), "utf8"), "built format/run.js");
   assert.equal(readFileSync(join(home, "mods", "my-files", "files", "main.js"), "utf8"), "built files/main.js");
   assert.ok(existsSync(join(home, "mods", "my-files", "icons", "a.svg")));
+  assert.equal(readFileSync(join(home, "mods", "my-changes", "list", "main.js"), "utf8"), "built list/main.js");
+  assert.equal(readFileSync(join(home, "mods", "my-diff", "changes", "pane.js"), "utf8"), "built changes/pane.js");
+  assert.ok(existsSync(join(home, "mods", "my-changes", "mod.json")));
+  assert.ok(existsSync(join(home, "mods", "my-diff", "mod.json")));
 });
 
-test("the installed layout swaps only the Files mod to my-files", () => {
+test("the installed layout swaps only the Files and Changes mods to my-files and my-changes", () => {
   const home = freshHome();
   const run = install(home, { installScript: stubRepo().script });
   assert.equal(run.status, 0, run.stderr);
   const diff = lineDiff(repoLayout, installedLayout(home));
-  assert.equal(diff.length, 1);
-  assert.equal(diff[0][0].trim(), '"mod": "files"');
-  assert.equal(diff[0][1].trim(), '"mod": "my-files"');
+  assert.deepEqual(diff.map(([from, to]) => [from.trim(), to.trim()]), [
+    ['"mod": "files"', '"mod": "my-files"'],
+    ['"mod": "changes"', '"mod": "my-changes"'],
+  ]);
   assert.match(run.stdout, /my-files/);
+  assert.match(run.stdout, /my-changes/);
   assert.match(installedLayout(home), /"id": "files"/);
   assert.match(installedLayout(home), /"active": "files"/);
 });
@@ -163,7 +177,7 @@ test("the workspaces mod is copied without test files", () => {
   assert.ok(!existsSync(join(mod, "lib.test.js")));
 });
 
-test("without editor installs only the workspaces mod and the layout on the shipped Files mod, building nothing", () => {
+test("without editor installs only the workspaces mod and the layout on the shipped Files and Changes mods, building nothing", () => {
   const home = freshHome();
   const stub = stubRepo();
   const run = install(home, { args: ["--without", "editor"], installScript: stub.script });
@@ -180,12 +194,12 @@ test("a rerun over its own copy keeps every marker as the project name", () => {
   assert.equal(install(home, { installScript: stub.script }).status, 0);
   const run = install(home, { installScript: stub.script });
   assert.equal(run.status, 0, run.stderr);
-  for (const mod of ["workspaces", "editor", "my-files"]) {
+  for (const mod of ["workspaces", "editor", "my-files", "my-changes", "my-diff"]) {
     assert.equal(readFileSync(join(home, "mods", mod, ".installed-from"), "utf8"), "herdr-workspaces");
   }
 });
 
-test("without editor leaves the editor and my-files copies of an earlier full install on disk and puts the layout back on files", () => {
+test("without editor leaves the editor, my-files, my-changes and my-diff copies of an earlier full install on disk and puts the layout back on files and changes", () => {
   const home = freshHome();
   const stub = stubRepo();
   assert.equal(install(home, { installScript: stub.script }).status, 0);
@@ -193,9 +207,11 @@ test("without editor leaves the editor and my-files copies of an earlier full in
   writeFileSync(join(stub.plugin, "mods", "editor", "main.js"), "changed after the first install");
   const run = install(home, { args: ["--without", "editor"], installScript: stub.script });
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(readdirSync(join(home, "mods")).sort(), ["editor", "my-files", "workspaces"]);
+  assert.deepEqual(readdirSync(join(home, "mods")).sort(), ["editor", "my-changes", "my-diff", "my-files", "workspaces"]);
   assert.equal(readFileSync(join(home, "mods", "editor", "main.js"), "utf8"), "export { default } from './editor/main.js';");
   assert.ok(existsSync(join(home, "mods", "my-files", "files", "main.js")));
+  assert.ok(existsSync(join(home, "mods", "my-changes", "list", "main.js")));
+  assert.ok(existsSync(join(home, "mods", "my-diff", "changes", "pane.js")));
   assert.equal(installedLayout(home), repoLayout);
   assert.ok(!existsSync(join(stub.plugin, "build-ran")));
 });
@@ -242,7 +258,7 @@ test("a second install writes Workspaces.json in place: same inode, new content"
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
   assert.equal(statSync(file).ino, inode);
-  assert.equal(installedLayout(home), (repoLayout + "\n").replace('"mod": "files"', '"mod": "my-files"'));
+  assert.equal(installedLayout(home), (repoLayout + "\n").replace('"mod": "files"', '"mod": "my-files"').replace('"mod": "changes"', '"mod": "my-changes"'));
 });
 
 test("a Workspaces.json symlink into this repository is replaced by a plain file", () => {
@@ -297,6 +313,22 @@ test("a source layout without the Files mod is refused before anything is writte
   assertNothingWritten(home);
 });
 
+test("a source layout naming the Changes mod twice is refused before anything is written", () => {
+  const home = freshHome();
+  const run = install(home, { installScript: stubRepo({ layoutText: repoLayout + '"mod": "changes"\n' }).script });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /"mod": "changes" exactly once/);
+  assertNothingWritten(home);
+});
+
+test("a source layout without the Changes mod is refused before anything is written", () => {
+  const home = freshHome();
+  const run = install(home, { installScript: stubRepo({ layoutText: repoLayout.replace('"mod": "changes"', '"mod": "other"') }).script });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /"mod": "changes" exactly once/);
+  assertNothingWritten(home);
+});
+
 test("a missing source layout is refused before anything is written", () => {
   const home = freshHome();
   const run = install(home, { installScript: stubRepo({ layoutText: null }).script });
@@ -338,7 +370,7 @@ test("no app home, two app homes and an app home that is not a folder are refuse
   assertNothingWritten(other);
 });
 
-for (const mod of ["editor", "my-files"]) {
+for (const mod of ["editor", "my-files", "my-changes", "my-diff"]) {
   test(`a ${mod} link pointing outside the repository is refused and nothing is written`, () => {
     const home = freshHome();
     const elsewhere = scratchDir("install-elsewhere-");
@@ -440,13 +472,15 @@ test("an install from a second checkout replaces the copy made from the first an
   writeFileSync(join(first.copy, "mods", "workspaces", "only-first.js"), "x");
   writeFileSync(join(second.copy, "mods", "workspaces", "main.js"), "from second");
   writeFileSync(join(second.plugin, "mods", "my-files", "main.js"), "from second");
+  writeFileSync(join(second.plugin, "mods", "my-changes", "main.js"), "from second");
   assert.equal(install(home, { installScript: first.script }).status, 0);
   const run = install(home, { installScript: second.script });
   assert.equal(run.status, 0, run.stderr);
   assert.ok(!existsSync(join(home, "mods", "workspaces", "only-first.js")));
   assert.equal(readFileSync(join(home, "mods", "workspaces", "main.js"), "utf8"), "from second");
   assert.equal(readFileSync(join(home, "mods", "my-files", "main.js"), "utf8"), "from second");
-  for (const mod of ["workspaces", "editor", "my-files"]) {
+  assert.equal(readFileSync(join(home, "mods", "my-changes", "main.js"), "utf8"), "from second");
+  for (const mod of ["workspaces", "editor", "my-files", "my-changes", "my-diff"]) {
     assert.equal(readFileSync(join(home, "mods", mod, ".installed-from"), "utf8"), "herdr-workspaces");
   }
 });
@@ -463,8 +497,8 @@ test("the real repository installs every mod with its built output", () => {
   const run = install(home);
   assert.equal(run.status, 0, run.stderr);
   const mods = join(home, "mods");
-  assert.deepEqual(readdirSync(mods).sort(), ["editor", "my-files", "workspaces"]);
-  for (const path of ["editor/editor/main.js", "editor/format/index.js", "my-files/files/main.js", "my-files/icons", "workspaces/main.js"]) {
+  assert.deepEqual(readdirSync(mods).sort(), ["editor", "my-changes", "my-diff", "my-files", "workspaces"]);
+  for (const path of ["editor/editor/main.js", "editor/format/index.js", "my-files/files/main.js", "my-files/icons", "my-changes/list/main.js", "my-diff/changes/pane.js", "workspaces/main.js"]) {
     assert.ok(existsSync(join(mods, path)), path);
   }
   assert.match(installedLayout(home), /"mod": "my-files"/);

@@ -18,7 +18,7 @@ module.exports = {
       "fileName": "tsconfig.json"
     },
     "exclude": {
-      "path": "^(?:mods/editor|mods/my-files)(?:/|$)"
+      "path": "^(?:mods/editor|mods/my-files|mods/my-diff|mods/my-changes)(?:/|$)"
     }
   }
 };

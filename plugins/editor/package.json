@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "prebuild": "bin/copy-types",
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.files.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.files.json && tsc -p tsconfig.diff.json && tsc -p tsconfig.list.json",
     "install:files": "npm run build && bin/install-files \"$HOME/.config/herdr-app\"",
     "pretypecheck": "bin/copy-types",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.files.json --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.files.json --noEmit && tsc -p tsconfig.diff.json --noEmit && tsc -p tsconfig.list.json --noEmit && tsc -p tsconfig.test.json",
     "test": "node --test",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout && se-gates qg coverage-receipt"
   },
