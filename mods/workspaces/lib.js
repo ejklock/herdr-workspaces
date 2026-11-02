@@ -1,5 +1,6 @@
 // Workspace store logic shared by the mods. Pure: no import from "herdr", so it runs under Node.
-// A store is { version: 1, workspaces: [{ id, name, icon, color }], assign: { [spaceId]: workspaceId } }.
+// A store is { version: 1, workspaces: [{ id, name, icon, color, machine? }], assign: { [spaceId]: workspaceId } }.
+// `machine` names the herdr-core machine a workspace owns; no two workspaces name the same one.
 
 /** Icon names are the shipped mods/workspace-chrome/<name>.svg files; "layers" stands for Default. */
 export const WORKSPACE_ICONS = ["folder", "server", "monitor", "terminal", "git-branch", "archive", "clock", "file-text", "files", "circle-check"];
@@ -22,18 +23,27 @@ const isText = (value) => typeof value === "string" && value.length > 0;
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+/** The workspace with `machine` set when it is a text no earlier workspace (in `cores`) already owns. */
+function claimMachine(workspace, machine, cores) {
+  if (!isText(machine) || cores.has(machine)) return workspace;
+  cores.add(machine);
+  return { ...workspace, machine };
+}
+
 function parseWorkspaces(list) {
   const seen = new Set();
+  const cores = new Set();
   const kept = [];
   for (const entry of Array.isArray(list) ? list : []) {
     if (!isRecord(entry) || !isText(entry.id) || !isText(entry.name) || seen.has(entry.id)) continue;
     seen.add(entry.id);
-    kept.push({
+    const workspace = {
       id: entry.id,
       name: entry.name,
       icon: isText(entry.icon) ? entry.icon : FALLBACK_WORKSPACE_ICON,
       color: isText(entry.color) ? entry.color : DEFAULT_COLOR,
-    });
+    };
+    kept.push(claimMachine(workspace, entry.machine, cores));
   }
   return kept;
 }
@@ -135,7 +145,7 @@ export function createWorkspace(store, { name, icon, color }, id) {
 export function renameWorkspace(store, id, { name, icon, color }) {
   const checked = checkName(store, name, id);
   if (checked.error) return { error: checked.error };
-  const workspaces = store.workspaces.map((w) => (w.id === id ? { id, name: checked.name, icon, color } : w));
+  const workspaces = store.workspaces.map((w) => (w.id === id ? { ...w, name: checked.name, icon, color } : w));
   return { store: { ...store, workspaces } };
 }
 
@@ -157,58 +167,58 @@ export function activeWorkspace(store, activeId) {
   return store.workspaces.find((w) => w.id === activeId);
 }
 
-/** True when the space belongs to no workspace the store holds; an assignment to a deleted workspace counts as none. */
-export const inDefault = (store, spaceId) => !store.workspaces.some((w) => w.id === store.assign[spaceId]);
-
-/** Puts a space in the workspace unless it already sits in a live one; the same Default rule `adoptArrivals` applies. */
-export function joinSpace(store, spaceId, workspaceId) {
-  return inDefault(store, spaceId) ? assignSpace(store, spaceId, workspaceId) : store;
-}
-
-// How long after the view starts the app is still restoring the window's spaces. Measured in a scratch
-// relaunch with five spaces, two on an attached machine: 7 relaunches, every space listed within
-// 0.62-0.66 s, the attached machine a local core, not ssh. 5 s leaves a wide margin over that, but how a
-// slower machine (ssh) behaves was not measured; the margin is an inference.
-// Two costs: a space made in the first 5 s is not taken; and a machine that takes longer than 5 s to
-// restore has its restored space taken and moved out of Default for good, when that space is this window's
-// active one, is in no workspace, and a workspace is active.
-export const RESTORE_MS = 5000;
+const isLocal = (space) => (space.machine ?? null) === null;
+const coreNames = (store) => new Set(store.workspaces.map((w) => w.machine).filter(Boolean));
 
 /**
- * Herdr gives a mod no signal that a restore finished, so spaces arriving within RESTORE_MS of the view's
- * start are the window's starting set (never taken, whichever is active); later ones are decided by
- * `adoptArrivals`, but only once the store has loaded, since before that every space would look
- * unassigned. Until then they stay undecided.
+ * The spaces the sidebar lists. A workspace lists every space of its core, plus the spaces of other
+ * machines (ones no workspace names) assigned to it; Default lists only the local core's spaces.
  */
-export function decideArrivals({ store, activeId, spaces, seen, loaded, startedAt, now }) {
-  if (now - startedAt <= RESTORE_MS) return { adopt: [], seen: new Set([...seen, ...spaces.map((s) => s.id)]) };
-  if (!loaded) return { adopt: [], seen: new Set(seen) };
-  return adoptArrivals(store, activeId, spaces, seen);
-}
-
-/** The spaces the sidebar lists: only those in no workspace for Default, else only the active workspace's. */
 export function visibleSpaces(store, activeId, spaces) {
   const active = activeWorkspace(store, activeId);
-  if (!active) return spaces.filter((s) => inDefault(store, s.id));
-  return spaces.filter((s) => store.assign[s.id] === active.id);
+  if (!active) return spaces.filter(isLocal);
+  const cores = coreNames(store);
+  return spaces.filter((s) => {
+    if (active.machine && s.machine === active.machine) return true;
+    return !isLocal(s) && !cores.has(s.machine) && store.assign[s.id] === active.id;
+  });
+}
+
+/** The agents of the spaces `visibleSpaces` lists; an agent whose space is not among `spaces` is dropped. */
+export function visibleAgents(store, activeId, agents, spaces) {
+  const shown = new Set(visibleSpaces(store, activeId, spaces).map((s) => s.id));
+  return agents.filter((a) => shown.has(a.space));
+}
+
+/** The machine headers the sidebar draws: other machines that hold a listed space, sorted; never a core. */
+export function sidebarMachines(store, visible) {
+  const cores = coreNames(store);
+  const names = visible.map((s) => s.machine ?? null).filter((m) => m !== null && !cores.has(m));
+  return [...new Set(names)].sort();
+}
+
+/** The machine a new space is made on: the active workspace's core; undefined (the local core) otherwise. */
+export function newSpaceMachine(store, activeId) {
+  return activeWorkspace(store, activeId)?.machine;
+}
+
+/** The `space.new` arguments for a new space: `{ machine }` when the active workspace names a core, else `{}`. */
+export function newSpaceArgs(store, activeId) {
+  const machine = newSpaceMachine(store, activeId);
+  return machine ? { machine } : {};
+}
+
+/** What the sidebar's list shows: "loading" while the core is still being read and nothing is listed, "empty" once it is read and nothing is listed, else "rows". */
+export function spaceListState(coreLoading, rowCount) {
+  if (rowCount > 0) return "rows";
+  return coreLoading ? "loading" : "empty";
 }
 
 /**
- * Decides the spaces not in `seen` once, at first sight. A space joins the active workspace only if it is
- * this window's active space (what creating one here does; a reconnecting machine's spaces and another
- * window's are not), sits in no workspace, and a workspace is active. Gives { adopt: ids, seen: the
- * enlarged set }; a space that is not taken is never taken later.
+ * The store to make a new space from: the one already followed when it holds workspaces, else what
+ * the file holds, so a space made before the first read still lands on the active workspace's core.
  */
-export function adoptArrivals(store, activeId, spaces, seen) {
-  const arrived = spaces.filter((s) => !seen.has(s.id));
-  const target = activeWorkspace(store, activeId);
-  const adopt = target ? arrived.filter((s) => s.active && inDefault(store, s.id)).map((s) => s.id) : [];
-  return { adopt, seen: new Set([...seen, ...arrived.map((s) => s.id)]) };
-}
-
-/** The agents the sidebar lists: those whose space visibleSpaces would keep. */
-export function visibleAgents(store, activeId, agents) {
-  const active = activeWorkspace(store, activeId);
-  if (!active) return agents.filter((a) => inDefault(store, a.space));
-  return agents.filter((a) => store.assign[a.space] === active.id);
+export async function settledStore(store, read, path) {
+  if (store.workspaces.length > 0) return store;
+  return (await loadStore(read, path)).store;
 }

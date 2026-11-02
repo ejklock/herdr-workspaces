@@ -1,13 +1,13 @@
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
-// grouped by machine when more than one is known. After a space's name, the repo
+// under a header per other machine (one no workspace owns). After a space's name, the repo
 // its first terminal is in now, only where unusual: branch, ahead/behind. Agent state lives in the agents list, not here. Click to
 // switch, right-click for its menu, drag to reorder.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify } from "herdr";
-import { mkdir } from "fs/promises";
-import { loadStore, storePaths, visibleSpaces, activeWorkspace, parseStore, decideArrivals, joinSpace, updateStore } from "./lib.js";
+import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, nextCommand } from "herdr";
+import { storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceArgs, settledStore, spaceListState } from "./lib.js";
+import { followWorkspaceStore } from "./switcher.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -61,15 +61,12 @@ export default class Spaces extends View {
     // worktree appears under its repo instead of jumping there.
     this.shown = new Set(spaces().map((s) => s.id));
     this.born = {};
-    this.decided = new Set(this.shown); // spaces already considered for joining the active workspace
     this.pressed = null;
     this.over = null;
     this.machines = [];
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
-    this.store = parseStore(undefined).store;
-    this.loaded = false; // the store file was read at least once
-    this.startedAt = Date.now();
-    this.followWorkspaces(cx);
+    followWorkspaceStore(this, cx);
+    this.followCommands(cx);
     this.refreshMachines(cx);
     cx.timer.every(15000, cx => this.refreshMachines(cx));
     // `git status` walks the whole tree, on another machine a process there:
@@ -77,16 +74,17 @@ export default class Spaces extends View {
     cx.timer.every(250, (cx) => this.checkNew(cx));
   }
 
-  // Keeps the workspace store current: other mods, and other windows, write it.
-  followWorkspaces(cx) {
-    const { dir, file } = storePaths(appHome());
-    cx.spawn(async (cx) => {
-      await mkdir(dir, { recursive: true });
+  // Makes a space on the active workspace's core; before any store is read it waits for the file instead of making it on the local core.
+  async newSpace() {
+    const store = await settledStore(this.store, readTextFile, storePaths(appHome()).file).catch(() => this.store);
+    run("space.new", newSpaceArgs(store, shared("workspaces.active")));
+  }
+
+  // The key command "workspaces:new-space" reaches every copy of this mod; only this role acts on it.
+  followCommands(cx) {
+    cx.spawn(async () => {
       for (;;) {
-        this.store = (await loadStore(readTextFile, file)).store;
-        this.loaded = true;
-        cx.notify();
-        await watchFolder(dir);
+        if ((await nextCommand()) === "new-space") await this.newSpace();
       }
     });
   }
@@ -95,26 +93,9 @@ export default class Spaces extends View {
     const now = Date.now();
     const sp = spaces();
     for (const s of sp) if (!this.shown.has(s.id)) this.born[s.id] ??= now;
-    const workspace = shared("workspaces.active");
-    const joined = decideArrivals({ store: this.store, activeId: workspace, spaces: sp, seen: this.decided, loaded: this.loaded, startedAt: this.startedAt, now });
-    this.decided = joined.seen;
-    for (const id of joined.adopt) void this.join(id, workspace);
     const due = this.due(now, sp, panes());
     if (due.size) this.refreshGit(due, cx);
     if (sp.some((s) => !this.shown.has(s.id))) cx.notify();
-  }
-
-  // A space made here while a workspace is active joins it, or it would land in Default and vanish from the list. The fresh file is checked again so another window's assignment stands.
-  async join(space, workspace) {
-    let result;
-    try {
-      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(appHome()).file, (store) => ({
-        store: joinSpace(store, space, workspace),
-      }));
-    } catch (e) {
-      result = { error: e.message ?? String(e) };
-    }
-    if (result.error) notify({ title: "Could not add the space to the workspace", body: result.error, level: "error" });
   }
 
   // Places whose git could have changed: new ones (a new space, a cd), where a
@@ -261,47 +242,49 @@ export default class Spaces extends View {
     return out;
   }
 
-  // The rows, under a header per machine once one isn't this computer.
+  // The rows; a header only for another machine (one no workspace owns) that holds a listed space.
   grouped(t, collapsed) {
     const rows = this.ordered();
     const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t));
     const active = activeWorkspace(this.store, shared("workspaces.active"));
-    if (active && !rows.length) return [h_flex().id("workspace-empty").h(28).flex_none().px(8).items_center().text_size(12).text_color(t.dim).child(collapsed ? "…" : `No spaces in ${active.name}`)];
-    const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name)])].sort();
-    const loading = m => {
-      const layout = machines().find(k => k.name === m)?.layout;
-      return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
-        || spaces().some(s => (s.machine ?? null) === m && !this.shown.has(s.id));
-    };
-    const loadingRow = m => div().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(8).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
-    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.map(draw);
-    // A workspace shows only the machines that have a space in it.
-    const machineNames = [null, ...remote].filter((m) => !active || rows.some((r) => (r.w.machine ?? null) === m));
-    return machineNames.flatMap((m) => {
-      const mine = rows.filter((r) => (r.w.machine ?? null) === m);
-      const machine = this.machines.find(k => k.name === m);
-      const connected = !m || machine?.state === "connected";
-      const folded = this.folded.has(m);
-      const head = h_flex().id(`machine-${m ?? "local"}`).h(26).flex_none().px(collapsed ? 2 : 8).gap(7).items_center().text_size(11).text_color(t.dim)
-        .cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => {
-          folded ? this.folded.delete(m) : this.folded.add(m);
-          localStorage.setItem("machines.folded", JSON.stringify([...this.folded]));
-          cx.notify();
-        })
-        .child(svg(`mods/workspace-chrome/${m ? "server" : "monitor"}.svg`).size(13).flex_none())
-        .when(!collapsed, el => el.child(div().flex_1().truncate().child(m ?? "default"))
-          .when(!connected, el => el.child(div().flex_none().child((machine?.state ?? "asleep").replace(/_/g, " "))))
-          .when(connected, el => el.child(div().id(`machine-add-${m ?? "local"}`).flex_none().px(4).rounded(4).hover(s => s.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", m ? { machine: m } : {}); }).child("+")))
-          .child(div().size(6).rounded(3).flex_none().bg(connected ? t.ansi2 : t.dim))
-          .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none()));
-      const empty = h_flex().id(`machine-new-${m ?? "local"}`).h(28).flex_none().px(8).gap(7).items_center().rounded(7)
-        .text_size(12).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
-        .on_click(() => run("space.new", m ? { machine: m } : {}))
-        .child(svg("mods/workspace-chrome/plus.svg").size(12)).when(!collapsed, el => el.child("New space there"));
-      return [head, ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty])];
-    });
+    const state = spaceListState(!rows.length && this.loading(active?.machine ?? null), rows.length);
+    if (state === "loading") return [div().id("machine-loading-local").h(28).flex_none().px(8).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…")];
+    if (state === "empty" && active) return [h_flex().id("workspace-empty").h(28).flex_none().px(8).items_center().text_size(12).text_color(t.dim).child(collapsed ? "…" : `No spaces in ${active.name}`)];
+    // Only another machine (one no workspace owns) gets a header; the rest list without one.
+    const headed = sidebarMachines(this.store, rows.map(r => r.w));
+    const plain = rows.filter(r => !headed.includes(r.w.machine));
+    return [...plain.map(draw), ...headed.flatMap((m) => [
+      this.machineHeader(m, t, collapsed),
+      ...(this.folded.has(m) ? [] : rows.filter((r) => r.w.machine === m).map(draw)),
+    ])];
+  }
+
+  // True while a machine's layout is still being read or one of its spaces waits for its git.
+  loading(m) {
+    const layout = machines().find(k => k.name === m)?.layout;
+    return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
+      || spaces().some(s => (s.machine ?? null) === m && !this.shown.has(s.id));
+  }
+
+  // The fold row of another machine: its name, state, a + that makes a space there, and the fold chevron.
+  machineHeader(m, t, collapsed) {
+    const machine = this.machines.find(k => k.name === m);
+    const connected = machine?.state === "connected";
+    const folded = this.folded.has(m);
+    return h_flex().id(`machine-${m}`).h(26).flex_none().px(collapsed ? 2 : 8).gap(7).items_center().text_size(11).text_color(t.dim)
+      .cursor_pointer().hover(s => s.bg(t.hover))
+      .on_click((_e, cx) => {
+        folded ? this.folded.delete(m) : this.folded.add(m);
+        localStorage.setItem("machines.folded", JSON.stringify([...this.folded]));
+        cx.notify();
+      })
+      .child(svg("mods/workspace-chrome/server.svg").size(13).flex_none())
+      .when(!collapsed, el => el.child(div().flex_1().truncate().child(m))
+        .when(!connected, el => el.child(div().flex_none().child((machine?.state ?? "asleep").replace(/_/g, " "))))
+        .when(connected, el => el.child(div().id(`machine-add-${m}`).flex_none().px(4).rounded(4).hover(s => s.bg(t.hover).text_color(t.foreground))
+          .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { machine: m }); }).child("+")))
+        .child(div().size(6).rounded(3).flex_none().bg(connected ? t.ansi2 : t.dim))
+        .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none()));
   }
 
   // Only what's unusual, after the name: "herdr \u00b7 spike \u21912 \u21931". The repo or
@@ -397,7 +380,7 @@ export default class Spaces extends View {
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
       .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
         .when(!collapsed, el => el.child("Spaces"))
-        .child(div().id("space-new").p(4).rounded(5).hover(s => s.bg(t.hover).text_color(t.foreground)).on_click(() => run("space.new")).child("+")))
+        .child(div().id("space-new").p(4).rounded(5).hover(s => s.bg(t.hover).text_color(t.foreground)).on_click(() => void this.newSpace()).child("+")))
       .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
         .children(this.grouped(t, collapsed)));

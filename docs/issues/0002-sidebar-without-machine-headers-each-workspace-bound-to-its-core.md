@@ -32,6 +32,7 @@ Builds on [ADR 0001](/adr/0001-one-core-per-workspace-attached-as-a-machine.md) 
 - The dialog only picks an attached core; creating a core stays outside the app (`hc machine add --via 'sh -c' --name <workspace> --session <workspace>`, as the README says). Not taken: the dialog starting a herdr-core session. Owner, 2026-11-02.
 - The owner binds BASE, Planet Argon and Inovatec in the dialog; not taken: a one-time automatic migration. Owner, 2026-11-02.
 - Cmd+N calls `workspaces.new-space`, one line in the owner's `keys.json` (shared by every profile), changed by the owner; not taken: Cmd+N always on the local core. Owner, 2026-11-02.
+- The cloned `agents.js` render and `menu.js` items, over the gate's complexity ceiling since the clone, are split until the gate passes; not taken: a named gate baseline, which kept their diff from Herdr's shipped source readable. Owner, 2026-11-02.
 - Two workspaces naming one core are refused in the dialog; an assignment of a space not on another machine is ignored, not deleted.
 
 ### Acceptance

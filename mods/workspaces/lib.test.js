@@ -14,12 +14,13 @@ import {
   updateStore,
   newWorkspaceId,
   storeFromShared,
-  adoptArrivals,
-  decideArrivals,
-  inDefault,
-  joinSpace,
-  RESTORE_MS,
+  sidebarMachines,
+  newSpaceMachine,
+  newSpaceArgs,
+  spaceListState,
+  settledStore,
 } from "./lib.js";
+import { menuItems } from "./menu-items.js";
 
 // An in-memory file with the app's optimistic write: a stale snapshot is refused.
 function fakeFile(initial) {
@@ -162,98 +163,195 @@ test("store: assigning to an unknown workspace changes nothing", () => {
   assert.deepEqual(assignSpace(start, "s1", "gone"), start);
 });
 
-const spaces = [space("a"), space("b"), space("m/c", "m"), space("m/d", "m")];
-const store = storeOf([workspace("w1", "Acme"), workspace("w2", "Empty")], { a: "w1", "m/c": "w1", b: "w1", "m/d": "w1" });
+// BASE and Planet Argon each name a herdr-core machine; abby-stg is an SSH machine no workspace names.
+const base = { ...workspace("base", "BASE"), machine: "base-digital" };
+const argon = { ...workspace("argon", "Planet Argon"), machine: "planet-argon" };
+const loose = workspace("loose", "Loose");
+const core = storeOf([base, argon, loose], {
+  "base-digital/1": "base",
+  local1: "base",
+  "planet-argon/1": "base",
+  "abby-stg/1": "base",
+  "abby-stg/2": "base",
+  "abby-stg/3": "argon",
+  "abby-stg/4": "loose",
+  local2: "loose",
+});
+const everySpace = [
+  space("local1"),
+  space("local2"),
+  space("local3"),
+  space("base-digital/1", "base-digital"),
+  space("base-digital/2", "base-digital"),
+  space("planet-argon/1", "planet-argon"),
+  space("abby-stg/1", "abby-stg"),
+  space("abby-stg/2", "abby-stg"),
+  space("abby-stg/3", "abby-stg"),
+  space("abby-stg/4", "abby-stg"),
+  space("abby-stg/5", "abby-stg"),
+];
+const idsOf = (list) => list.map((s) => s.id);
 
-test("visible spaces: no active workspace with an empty store shows every space of every machine", () => {
-  assert.deepEqual(visibleSpaces(storeOf([]), undefined, spaces), spaces);
+test("visible spaces: a workspace lists every space of its core plus the other-machine spaces assigned to it", () => {
+  assert.deepEqual(idsOf(visibleSpaces(core, "base", everySpace)), ["base-digital/1", "base-digital/2", "abby-stg/1", "abby-stg/2"]);
 });
 
-test("visible spaces: no active workspace hides spaces assigned to an existing workspace", () => {
-  const some = storeOf([workspace("w1", "Acme")], { a: "w1", "m/c": "w1" });
-  assert.deepEqual(visibleSpaces(some, undefined, spaces), [space("b"), space("m/d", "m")]);
+test("visible spaces: a workspace does not list a local space or another workspace's core space assigned to it", () => {
+  const ids = idsOf(visibleSpaces(core, "base", everySpace));
+  assert.ok(!ids.includes("local1"));
+  assert.ok(!ids.includes("planet-argon/1"));
 });
 
-test("visible spaces: no active workspace with every space assigned gives an empty list", () => {
-  assert.deepEqual(visibleSpaces(store, undefined, spaces), []);
+test("visible spaces: a workspace does not list an unassigned other-machine space", () => {
+  assert.ok(!idsOf(visibleSpaces(core, "base", everySpace)).includes("abby-stg/5"));
 });
 
-test("visible spaces: no active workspace keeps a space assigned to a workspace the store no longer holds", () => {
-  const stale = storeOf([workspace("w1", "Acme")], { a: "gone", b: "w1" });
-  assert.deepEqual(visibleSpaces(stale, undefined, spaces), [space("a"), space("m/c", "m"), space("m/d", "m")]);
+test("visible spaces: Default lists only the local core, whatever the assignment", () => {
+  assert.deepEqual(idsOf(visibleSpaces(core, undefined, everySpace)), ["local1", "local2", "local3"]);
 });
 
-test("visible spaces: an active workspace shows only its spaces across machines", () => {
-  const mixed = storeOf([workspace("w1", "Acme")], { a: "w1", "m/c": "w1" });
-  assert.deepEqual(visibleSpaces(mixed, "w1", spaces), [space("a"), space("m/c", "m")]);
+test("visible spaces: an active id the store no longer holds behaves as Default", () => {
+  assert.deepEqual(idsOf(visibleSpaces(core, "deleted", everySpace)), ["local1", "local2", "local3"]);
+  assert.equal(activeWorkspace(core, "deleted"), undefined);
 });
 
-test("visible spaces: a machine with none of its spaces in the workspace has no entry", () => {
-  const local = storeOf([workspace("w1", "Acme")], { a: "w1", b: "w1" });
-  assert.deepEqual(
-    visibleSpaces(local, "w1", spaces).filter((s) => s.machine === "m"),
-    [],
-  );
+test("visible spaces: a workspace with no machine lists only the other-machine spaces assigned to it", () => {
+  assert.deepEqual(idsOf(visibleSpaces(core, "loose", everySpace)), ["abby-stg/4"]);
 });
 
-test("visible spaces: an active id missing from the store behaves as no active workspace", () => {
-  const some = storeOf([workspace("w1", "Acme")], { a: "w1" });
-  assert.deepEqual(visibleSpaces(some, "deleted", spaces), [space("b"), space("m/c", "m"), space("m/d", "m")]);
-  assert.deepEqual(visibleSpaces(store, "deleted", spaces), []);
-  assert.equal(activeWorkspace(store, "deleted"), undefined);
-});
-
-test("visible spaces: a workspace with no spaces gives an empty list", () => {
-  assert.deepEqual(visibleSpaces(store, "w2", spaces), []);
-  assert.deepEqual(activeWorkspace(store, "w2"), workspace("w2", "Empty"));
+test("visible spaces: a workspace naming a machine with no spaces gives an empty list", () => {
+  const quiet = storeOf([{ ...workspace("q", "Quiet"), machine: "inovatec" }]);
+  assert.deepEqual(visibleSpaces(quiet, "q", everySpace), []);
 });
 
 test("visible spaces: an assignment to a space that no longer exists is ignored", () => {
-  const stale = storeOf([workspace("w1", "Acme")], { a: "w1", ghost: "w1" });
-  assert.deepEqual(visibleSpaces(stale, "w1", spaces), [space("a")]);
+  const stale = storeOf([loose], { ghost: "loose", "abby-stg/4": "loose" });
+  assert.deepEqual(idsOf(visibleSpaces(stale, "loose", everySpace)), ["abby-stg/4"]);
 });
 
-test("visible spaces: an unassigned space shows only under Default", () => {
-  const partial = storeOf([workspace("w1", "Acme")], { a: "w1" });
-  assert.deepEqual(visibleSpaces(partial, "w1", spaces), [space("a")]);
-  assert.equal(visibleSpaces(partial, undefined, spaces).length, 3);
+test("visible spaces: no workspace and an empty store lists every local space only", () => {
+  assert.deepEqual(idsOf(visibleSpaces(storeOf([]), undefined, everySpace)), ["local1", "local2", "local3"]);
 });
 
 const agent = (address, spaceId) => ({ address, space: spaceId });
-const agents = [agent("1", "a"), agent("2", "b"), agent("3", "m/c"), agent("4", "orphan"), agent("5", "a")];
+const everyAgent = [
+  agent("1", "local1"),
+  agent("2", "base-digital/1"),
+  agent("3", "planet-argon/1"),
+  agent("4", "abby-stg/1"),
+  agent("5", "abby-stg/5"),
+  agent("6", "orphan"),
+  agent("7", "abby-stg/4"),
+];
+const addressesOf = (list) => list.map((a) => a.address);
 
-test("visible agents: no active workspace keeps agents of unassigned spaces, orphans included", () => {
-  const some = storeOf([workspace("w1", "Acme")], { a: "w1", "m/c": "w1" });
-  assert.deepEqual(visibleAgents(some, undefined, agents), [agent("2", "b"), agent("4", "orphan")]);
-  assert.deepEqual(visibleAgents(store, undefined, agents), [agent("4", "orphan")]);
+test("visible agents: a workspace keeps the agents of the spaces it lists, in order", () => {
+  assert.deepEqual(addressesOf(visibleAgents(core, "base", everyAgent, everySpace)), ["2", "4"]);
 });
 
-test("visible agents: an active id missing from the store behaves as no active workspace", () => {
-  const some = storeOf([workspace("w1", "Acme")], { a: "w1" });
-  assert.deepEqual(visibleAgents(some, "deleted", agents), [agent("2", "b"), agent("3", "m/c"), agent("4", "orphan")]);
+test("visible agents: Default keeps only agents of local spaces", () => {
+  assert.deepEqual(addressesOf(visibleAgents(core, undefined, everyAgent, everySpace)), ["1"]);
 });
 
-test("visible agents: an agent of a space assigned to a deleted workspace is kept under no active workspace", () => {
-  const stale = storeOf([workspace("w1", "Acme")], { a: "gone" });
-  assert.deepEqual(visibleAgents(stale, undefined, agents), agents);
+test("visible agents: a workspace with no machine keeps the agents of its assigned other-machine spaces", () => {
+  assert.deepEqual(addressesOf(visibleAgents(core, "loose", everyAgent, everySpace)), ["7"]);
 });
 
-test("visible agents: an active workspace keeps only agents of its spaces, in order", () => {
-  const partial = storeOf([workspace("w1", "Acme")], { a: "w1", "m/c": "w1" });
-  assert.deepEqual(visibleAgents(partial, "w1", agents), [agent("1", "a"), agent("3", "m/c"), agent("5", "a")]);
+test("visible agents: an agent whose space is not in the given spaces is dropped", () => {
+  assert.deepEqual(visibleAgents(core, "base", [agent("6", "orphan")], everySpace), []);
+  assert.deepEqual(visibleAgents(core, undefined, [agent("6", "orphan")], everySpace), []);
+  assert.deepEqual(visibleAgents(core, "base", everyAgent, []), []);
 });
 
-test("visible agents: an agent in another workspace's space or an unassigned space is hidden", () => {
-  const split = storeOf([workspace("w1", "Acme"), workspace("w2", "Beta")], { a: "w1", b: "w2" });
-  assert.deepEqual(visibleAgents(split, "w2", agents), [agent("2", "b")]);
-  assert.deepEqual(visibleAgents(split, "w1", agents).map((x) => x.address), ["1", "5"]);
+test("sidebar machine headers: a workspace shows another machine that holds a visible space of it", () => {
+  const visible = visibleSpaces(core, "base", everySpace);
+  assert.deepEqual(sidebarMachines(core, visible), ["abby-stg"]);
 });
 
-test("visible agents: a workspace with no spaces and an empty agent list give empty lists", () => {
-  assert.deepEqual(visibleAgents(store, "w2", agents), []);
-  assert.deepEqual(visibleAgents(store, "w1", []), []);
-  assert.deepEqual(visibleAgents(store, undefined, []), []);
+test("sidebar machine headers: a workspace with no other-machine space shows none", () => {
+  const visible = visibleSpaces(storeOf([base]), "base", everySpace);
+  assert.deepEqual(sidebarMachines(storeOf([base]), visible), []);
 });
+
+test("sidebar machine headers: Default shows none", () => {
+  assert.deepEqual(sidebarMachines(core, visibleSpaces(core, undefined, everySpace)), []);
+});
+
+test("sidebar machine headers: a machine named by an inactive workspace is absent", () => {
+  assert.deepEqual(sidebarMachines(core, [space("planet-argon/1", "planet-argon"), space("abby-stg/1", "abby-stg")]), ["abby-stg"]);
+});
+
+test("sidebar machine headers: the local core and the active workspace's core are never headers", () => {
+  const spacesHere = [space("local1"), space("base-digital/1", "base-digital")];
+  assert.deepEqual(sidebarMachines(core, spacesHere), []);
+});
+
+test("sidebar machine headers: a disconnected machine holding a visible space still has its header", () => {
+  const unreachable = [{ ...space("abby-stg/1", "abby-stg"), state: "disconnected" }];
+  assert.deepEqual(sidebarMachines(core, unreachable), ["abby-stg"]);
+});
+
+test("sidebar machine headers: each machine appears once, sorted", () => {
+  const several = [space("z/1", "z-box"), space("a/1", "a-box"), space("a/2", "a-box")];
+  assert.deepEqual(sidebarMachines(core, several), ["a-box", "z-box"]);
+});
+
+test("new space machine: the active workspace's machine", () => {
+  assert.equal(newSpaceMachine(core, "base"), "base-digital");
+});
+
+test("new space machine: none under Default, for a deleted workspace id and for a workspace with no machine", () => {
+  assert.equal(newSpaceMachine(core, undefined), undefined);
+  assert.equal(newSpaceMachine(core, "deleted"), undefined);
+  assert.equal(newSpaceMachine(core, "loose"), undefined);
+});
+
+test("new space args: carry the machine when there is one and are empty otherwise", () => {
+  assert.deepEqual(newSpaceArgs(core, "base"), { machine: "base-digital" });
+  assert.deepEqual(newSpaceArgs(core, undefined), {});
+  assert.deepEqual(newSpaceArgs(core, "loose"), {});
+});
+
+test("store machine: a workspace's machine is kept when it is a non-empty string", () => {
+  const text = JSON.stringify(storeOf([{ ...workspace("w1", "Acme"), machine: "base-digital" }]));
+  assert.equal(parseStore(text).store.workspaces[0].machine, "base-digital");
+});
+
+test("store machine: an absent, empty or non-string machine leaves no field and keeps the workspace", () => {
+  for (const machine of [undefined, "", 42, null, ["x"]]) {
+    const text = JSON.stringify(storeOf([{ ...workspace("w1", "Acme"), machine }]));
+    const kept = parseStore(text).store.workspaces;
+    assert.deepEqual(kept, [workspace("w1", "Acme")]);
+    assert.equal("machine" in kept[0], false);
+  }
+});
+
+test("store machine: of two workspaces naming one machine, the first keeps it and the second loses only that field", () => {
+  const text = JSON.stringify(storeOf([{ ...workspace("w1", "One"), machine: "m" }, { ...workspace("w2", "Two"), machine: "m" }]));
+  assert.deepEqual(parseStore(text).store.workspaces, [{ ...workspace("w1", "One"), machine: "m" }, workspace("w2", "Two")]);
+});
+
+test("store machine: a store with and without machines round-trips and stays version 1", () => {
+  for (const workspaces of [[workspace("w1", "Acme")], [{ ...workspace("w1", "Acme"), machine: "m" }, workspace("w2", "Beta")]]) {
+    const text = serializeStore(storeOf(workspaces, { s1: "w1" }));
+    const { store, error } = parseStore(text);
+    assert.equal(error, undefined);
+    assert.equal(store.version, 1);
+    assert.equal(serializeStore(store), text);
+  }
+});
+
+test("store machine: renaming a workspace keeps its machine", () => {
+  const start = storeOf([{ ...workspace("w1", "Acme"), machine: "m" }]);
+  const { store } = renameWorkspace(start, "w1", { name: "Acme 2", icon: "server", color: "ansi2" });
+  assert.deepEqual(store.workspaces, [{ id: "w1", name: "Acme 2", icon: "server", color: "ansi2", machine: "m" }]);
+});
+
+test("store machine: a workspace created without a machine has no machine field", () => {
+  const { store } = createWorkspace(storeOf([]), { name: "Acme", icon: "server", color: "ansi2" }, "w1");
+  assert.equal("machine" in store.workspaces[0], false);
+});
+
 
 test("store file: a missing file loads as an empty store", async () => {
   const { store, error } = await loadStore(fakeFile(null).read, "/p");
@@ -364,121 +462,53 @@ test("store file: an invalid name reports the reason and attempts no write", asy
   assert.equal(attempts, 0);
 });
 
-// A window's view of a space as the app lists it.
-const live = (id, active = false, machine = null) => ({ id, machine, active });
-const joinStore = storeOf([workspace("w1", "Acme")], { old: "w1" });
-
-test("adoptArrivals assigns a new active unassigned space to the active workspace", () => {
-  const out = adoptArrivals(joinStore, "w1", [live("old"), live("new", true)], new Set(["old"]));
-  assert.deepEqual(out.adopt, ["new"]);
+test("space list state: a loading core with no rows is loading, a loaded core with no rows is empty, rows are neither", () => {
+  assert.equal(spaceListState(true, 0), "loading");
+  assert.equal(spaceListState(false, 0), "empty");
+  assert.equal(spaceListState(true, 2), "rows");
+  assert.equal(spaceListState(false, 2), "rows");
 });
 
-test("adoptArrivals takes nothing while Default is active", () => {
-  assert.deepEqual(adoptArrivals(joinStore, undefined, [live("new", true)], new Set()).adopt, []);
+test("settled store: a store that already holds workspaces is used without reading the file", async () => {
+  let reads = 0;
+  const read = async () => {
+    reads += 1;
+    return undefined;
+  };
+  assert.equal(await settledStore(core, read, "/p"), core);
+  assert.equal(reads, 0);
 });
 
-test("adoptArrivals takes nothing for a stale active workspace id", () => {
-  assert.deepEqual(adoptArrivals(joinStore, "gone", [live("new", true)], new Set()).adopt, []);
+test("settled store: an empty store waits for the file read and gives what the file holds", async () => {
+  const file = fakeFile(serializeStore(core));
+  const store = await settledStore(storeOf([]), file.read, "/p");
+  assert.deepEqual(newSpaceArgs(store, "base"), { machine: "base-digital" });
 });
 
-test("adoptArrivals leaves new spaces that are not the window's active one", () => {
-  const out = adoptArrivals(joinStore, "w1", [live("m/a", false, "m"), live("m/b", false, "m")], new Set());
-  assert.deepEqual(out.adopt, []);
+const menuProps = (tab) => ({ tab, target: { id: "s1", space: "s1" } });
+const newSpaceItem = (store, activeId) => menuItems(menuProps(undefined), null, store, activeId, [])[0];
+
+test("menu: New space carries the active workspace's core", () => {
+  assert.deepEqual(newSpaceItem(core, "base"), ["New space", "space.new", { machine: "base-digital" }]);
 });
 
-test("adoptArrivals leaves a new space another window already assigned", () => {
-  const store = storeOf([workspace("w1", "Acme"), workspace("w2", "Other")], { fresh: "w2" });
-  assert.deepEqual(adoptArrivals(store, "w1", [live("fresh", true)], new Set()).adopt, []);
+test("menu: New space carries no core under Default, for a deleted workspace and for an unbound workspace", () => {
+  for (const id of [undefined, "deleted", "loose"]) assert.deepEqual(newSpaceItem(core, id), ["New space", "space.new", {}]);
 });
 
-test("adoptArrivals takes a new space whose assignment points at a deleted workspace", () => {
-  const store = storeOf([workspace("w1", "Acme")], { fresh: "gone" });
-  assert.deepEqual(adoptArrivals(store, "w1", [live("fresh", true)], new Set()).adopt, ["fresh"]);
+test("menu: the space tab lists rename, move, worktree items for a repo and close", () => {
+  const items = (git) => menuItems(menuProps("space"), git, core, "base", []).map((i) => i.slice(0, 3));
+  assert.deepEqual(items(null), [
+    ["Rename", "space.rename", { id: "s1" }],
+    ["Move to workspace…", "workspaces.move", { space: "s1" }],
+    ["Close", "space.close", { id: "s1" }],
+  ]);
+  assert.deepEqual(items("linked").map((i) => i[0]), ["Rename", "Move to workspace…", "New worktree", "Open worktree", "Remove worktree", "Close"]);
 });
 
-test("adoptArrivals never takes a space present at the start", () => {
-  const out = adoptArrivals(joinStore, "w1", [live("start", true)], new Set(["start"]));
-  assert.deepEqual(out.adopt, []);
+test("menu: the workspace-move tab checks the space's current workspace", () => {
+  const assigned = storeOf(core.workspaces, { s1: "base" });
+  const items = menuItems(menuProps("workspace-move"), null, assigned, undefined, []);
+  assert.deepEqual(items.map((i) => [i[0], i[3]]), [["Default", false], ...core.workspaces.map((w) => [w.name, w.id === "base"])]);
 });
 
-test("adoptArrivals takes a remote new active space under its machine-prefixed id", () => {
-  const out = adoptArrivals(joinStore, "w1", [live("m/7", true, "m")], new Set());
-  assert.deepEqual(out.adopt, ["m/7"]);
-});
-
-test("adoptArrivals decides an arrival once: selecting it later does not take it", () => {
-  const first = adoptArrivals(joinStore, "w1", [live("m/a", false, "m")], new Set());
-  const later = adoptArrivals(joinStore, "w1", [live("m/a", true, "m")], first.seen);
-  assert.deepEqual(later.adopt, []);
-});
-
-test("adoptArrivals does not change the seen set it was given", () => {
-  const seen = new Set();
-  adoptArrivals(joinStore, "w1", [live("new", true)], seen);
-  assert.equal(seen.size, 0);
-});
-
-// Arrivals as the view sees them: `at` ms after it started.
-const START = 1_000_000;
-const decide = (spaces, { at, seen = new Set(), loaded = true, store = joinStore, activeId = "w1" }) =>
-  decideArrivals({ store, activeId, spaces, seen, loaded, startedAt: START, now: START + at });
-
-test("decideArrivals never takes spaces restored in the first tick, the active one included", () => {
-  const out = decide([live("a", true), live("b")], { at: 250 });
-  assert.deepEqual(out.adopt, []);
-  assert.deepEqual([...out.seen].sort(), ["a", "b"]);
-});
-
-test("decideArrivals never takes a space restored in a later tick of the window", () => {
-  const first = decide([live("a")], { at: 100 });
-  const later = decide([live("a"), live("m/b", true, "m")], { at: RESTORE_MS - 1, seen: first.seen });
-  assert.deepEqual(later.adopt, []);
-  assert.ok(later.seen.has("m/b"));
-});
-
-test("decideArrivals takes the active unassigned space that arrives after the window", () => {
-  assert.deepEqual(decide([live("old"), live("new", true)], { at: RESTORE_MS + 1, seen: new Set(["old"]) }).adopt, ["new"]);
-});
-
-test("decideArrivals takes the first space of a window that started with none", () => {
-  assert.deepEqual(decide([live("first", true)], { at: RESTORE_MS + 5000 }).adopt, ["first"]);
-});
-
-test("decideArrivals treats an arrival exactly at the limit as restored", () => {
-  assert.deepEqual(decide([live("x", true)], { at: RESTORE_MS }).adopt, []);
-});
-
-test("decideArrivals treats an arrival just past the limit as created", () => {
-  assert.deepEqual(decide([live("x", true)], { at: RESTORE_MS + 1 }).adopt, ["x"]);
-});
-
-test("decideArrivals waits for the store: past the window, not loaded, nothing taken or marked decided", () => {
-  const waiting = decide([live("x", true)], { at: RESTORE_MS + 1, loaded: false });
-  assert.deepEqual(waiting.adopt, []);
-  assert.equal(waiting.seen.size, 0);
-  assert.deepEqual(decide([live("x", true)], { at: RESTORE_MS + 2, seen: waiting.seen }).adopt, ["x"]);
-});
-
-test("decideArrivals does not change the seen set it was given", () => {
-  const seen = new Set();
-  decide([live("x", true)], { at: 10, seen });
-  assert.equal(seen.size, 0);
-});
-
-test("inDefault: a space assigned to a deleted workspace is in Default, one in a live workspace is not", () => {
-  const store = storeOf([workspace("w1", "Acme")], { gone: "ghost", kept: "w1" });
-  assert.equal(inDefault(store, "gone"), true);
-  assert.equal(inDefault(store, "kept"), false);
-  assert.equal(inDefault(store, "never"), true);
-});
-
-test("joinSpace on the fresh store assigns a space whose workspace was deleted, as adoptArrivals does", () => {
-  const store = storeOf([workspace("w1", "Acme")], { fresh: "gone" });
-  assert.equal(joinSpace(store, "fresh", "w1").assign.fresh, "w1");
-  assert.deepEqual(adoptArrivals(store, "w1", [live("fresh", true)], new Set()).adopt, ["fresh"]);
-});
-
-test("joinSpace leaves a space another window put in a live workspace", () => {
-  const store = storeOf([workspace("w1", "Acme"), workspace("w2", "Other")], { fresh: "w2" });
-  assert.equal(joinSpace(store, "fresh", "w1"), store);
-});
