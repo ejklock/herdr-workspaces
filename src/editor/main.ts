@@ -4,7 +4,7 @@ import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
 import { props, focused, panes, spaces, shared, setShared, run, exec, readTextFile, writeTextFile, theme, settings, nextCommand } from "herdr";
 import { EditorDocument, textToShow } from "./document.ts";
-import { baseName, languageFor, syntaxColors } from "./language.ts";
+import { baseName, editorFontSize, languageFor, syntaxColors } from "./language.ts";
 import { routePane, isLocalPane, type Claims } from "./routing.ts";
 
 type Colors = Record<string, string>;
@@ -92,7 +92,7 @@ export default class Editing extends View {
     if (generation !== this.generation) return;
     if (this.doc.status.kind === "editable" || this.doc.status.kind === "readonly") {
       this.code = EditorState.new({ language: languageFor(this.path), value: this.doc.snapshot, readonly: this.doc.status.kind === "readonly",
-        folding: true, line_numbers: true, font_family: String(settings()["font_family"] ?? ""), font_size: 12, syntax: syntaxColors(theme()) });
+        folding: true, line_numbers: true, font_family: String(settings()["font_family"] ?? ""), font_size: editorFontSize(settings()), syntax: syntaxColors(theme()) });
       this.code.on("change", (_e, cx) => cx.notify());
       this.code.on("focus", (_e, cx) => { this.adopt(); cx.notify(); });
     }
@@ -154,7 +154,7 @@ export default class Editing extends View {
     const notice = this.doc.failure ?? this.doc.notice ?? (status.kind === "readonly" || status.kind === "unavailable" ? status.message : undefined);
     const dirty = this.doc.dirty(this.text());
     return v_flex().id("editor").key_context("EditorPane").on_action("editor-save", (_e, cx) => { this.adopt(); this.save(cx); })
-      .size_full().min_h(0).rounded(10).overflow_hidden().bg(hex(t, "background")).border_1().border_color(hex(t, "border")).text_color(hex(t, "foreground")).text_size(13)
+      .size_full().min_h(0).overflow_hidden().bg(hex(t, "background")).text_color(hex(t, "foreground")).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(hex(t, "border"))
         .child(div().font_semibold().truncate().child(this.path ? baseName(this.path) : "Editor"))
         .when(dirty, el => el.child(div().text_color(hex(t, "blocked")).child("●")))

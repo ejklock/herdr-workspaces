@@ -1,6 +1,6 @@
 # herdr-editor
 
-An `editor` mod for the Herdr desktop app: a pane that shows one local text file, editable, with the theme's syntax colors, line numbers and folding.
+An `editor` mod for the Herdr desktop app: a pane that shows one local text file, editable, with line numbers and folding. The twelve syntax colors come from the Herdr theme and the code font size is the `font_size` setting (12 when it is missing or unusable); the pane draws no frame of its own inside the Herdr pane.
 
 ## Safety
 
