@@ -41,4 +41,4 @@ Rejected: every mod flat in the root `mods/`, TypeScript sources in a root `src/
 
 **Implementation impact:** `plugins/editor/`, `package.json`, `bin/install`, `bin/install.test.js`, README.
 
-**Verification criteria:** `mods/` holds only `workspaces`; `git log --follow plugins/editor/src/editor` lists herdr-editor's commits; `bin/install <scratch home>` installs `workspaces`, `editor` and `my-files`, and `bin/install --without editor <scratch home>` installs only `workspaces` with the Files block on `files`.
+**Verification criteria:** `mods/` holds only `workspaces`; `git log --follow plugins/editor/src/editor/main.ts` lists herdr-editor's commits that touched that file (`--follow` takes one file, never a folder); `bin/install <scratch home>` installs `workspaces`, `editor` and `my-files`, and `bin/install --without editor <scratch home>` installs only `workspaces` with the Files block on `files`.
