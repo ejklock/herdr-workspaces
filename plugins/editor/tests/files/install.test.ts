@@ -40,6 +40,11 @@ beforeEach(() => {
   for (const name of ["editor/main.js", "editor/pane.js", "format/run.js"]) write(editorSource(name), `built ${name}`);
   for (const name of ["editor/pane.d.ts", "jsconfig.json", "editor/pane.test.js"]) write(editorSource(name), "not shipped");
   for (const name of ["gpui-kit.d.ts", "jsconfig.json", "files/gpui-kit.d.ts", "files/tree.d.ts", "files/tree.test.js"]) write(source(name), "not shipped");
+  for (const mod of ["my-changes", "my-diff"]) for (const name of ["main.js", "mod.json"]) write(join(repo, "mods", mod, name), `src ${mod} ${name}`);
+  write(join(repo, "mods", "my-changes", "list", "main.js"), "built list/main.js");
+  write(join(repo, "mods", "my-changes", "gpui-kit.d.ts"), "not shipped");
+  write(join(repo, "mods", "my-diff", "changes", "pane.js"), "built changes/pane.js");
+  write(join(repo, "mods", "my-diff", "changes", "pane.test.js"), "not shipped");
   mkdirSync(home, { recursive: true });
 });
 
@@ -353,8 +358,45 @@ describe("installing my-files", () => {
   });
 });
 
+const modTarget = (mod: string) => (name = "") => join(home, "mods", mod, name);
+
+describe("installing my-changes and my-diff", () => {
+  it("copies each mod's top-level files and its built folder as real folders marked with the project name", () => {
+    const run = install(home);
+    assert.equal(run.status, 0, run.stderr);
+    for (const mod of ["my-changes", "my-diff"]) assert.equal(lstatSync(modTarget(mod)()).isSymbolicLink(), false);
+    assert.deepEqual(tree(modTarget("my-changes")()), [".installed-from", "list/main.js", "main.js", "mod.json"].sort());
+    assert.deepEqual(tree(modTarget("my-diff")()), [".installed-from", "changes/pane.js", "main.js", "mod.json"].sort());
+    assert.equal(readFileSync(modTarget("my-changes")(".installed-from"), "utf8"), "herdr-workspaces");
+    assert.equal(readFileSync(modTarget("my-diff")(".installed-from"), "utf8"), "herdr-workspaces");
+  });
+
+  it("replaces them on a rerun and removes a file gone from the source", () => {
+    write(join(repo, "mods", "my-diff", "changes", "extra.js"), "extra");
+    assert.equal(install(home).status, 0);
+    assert.ok(existsSync(modTarget("my-diff")("changes/extra.js")));
+    write(join(repo, "mods", "my-changes", "list", "main.js"), "rebuilt");
+    rmSync(join(repo, "mods", "my-diff", "changes", "extra.js"));
+    assert.equal(install(home).status, 0);
+    assert.equal(readFileSync(modTarget("my-changes")("list/main.js"), "utf8"), "rebuilt");
+    assert.equal(existsSync(modTarget("my-diff")("changes/extra.js")), false);
+  });
+
+  it("refuses when either build output is missing and writes nothing", () => {
+    for (const missing of [join(repo, "mods", "my-changes", "list", "main.js"), join(repo, "mods", "my-diff", "changes", "pane.js")]) {
+      const saved = readFileSync(missing, "utf8");
+      rmSync(missing);
+      const run = install(home);
+      assert.notEqual(run.status, 0);
+      assert.match(run.stderr, /npm run build/);
+      assert.equal(existsSync(join(home, "mods")), false);
+      write(missing, saved);
+    }
+  });
+});
+
 describe("which marker counts as the project's", () => {
-  const mods: [string, (name?: string) => string][] = [["my-files", target], ["editor", editorTarget]];
+  const mods: [string, (name?: string) => string][] = [["my-files", target], ["editor", editorTarget], ["my-changes", modTarget("my-changes")], ["my-diff", modTarget("my-diff")]];
   const replaceable: [string, () => string][] = [
     ["the project name", () => "herdr-workspaces"],
     ["another absolute path", () => "/some/other/repo"],
@@ -401,16 +443,20 @@ describe("which marker counts as the project's", () => {
         assert.match(run.stderr, /refusing/);
         assert.deepEqual(tree(where()), before);
         assert.equal(readFileSync(where("keep.txt"), "utf8"), "kept");
-        assert.equal(existsSync(join(home, "mods", mod === "editor" ? "my-files" : "editor")), false);
+        for (const other of ["editor", "my-files", "my-changes", "my-diff"].filter(m => m !== mod)) {
+          assert.equal(existsSync(join(home, "mods", other)), false, other);
+        }
       });
     }
   }
 
-  it("writes the project name to both markers on a rerun over its own copies", () => {
+  it("writes the project name to every marker on a rerun over its own copies", () => {
     assert.equal(install(home).status, 0);
     assert.equal(install(home).status, 0);
     assert.equal(readFileSync(editorTarget(".installed-from"), "utf8"), "herdr-workspaces");
     assert.equal(readFileSync(target(".installed-from"), "utf8"), "herdr-workspaces");
+    assert.equal(readFileSync(modTarget("my-changes")(".installed-from"), "utf8"), "herdr-workspaces");
+    assert.equal(readFileSync(modTarget("my-diff")(".installed-from"), "utf8"), "herdr-workspaces");
   });
 
   it("replaces the copies made from one checkout when installing from another", () => {
@@ -424,6 +470,9 @@ describe("which marker counts as the project's", () => {
     }
     write(join(second, "mods", "my-files", "files", "main.js"), "second");
     write(join(second, "mods", "editor", "editor", "main.js"), "second");
+    for (const mod of ["my-changes", "my-diff"]) for (const name of ["main.js", "mod.json"]) write(join(second, "mods", mod, name), "second");
+    write(join(second, "mods", "my-changes", "list", "main.js"), "second");
+    write(join(second, "mods", "my-diff", "changes", "pane.js"), "second");
     const run = spawnSync("sh", [join(second, "bin", "install-files"), home], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
     assert.equal(readFileSync(target("main.js"), "utf8"), "second");

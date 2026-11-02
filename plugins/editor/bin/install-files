@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copies this plugin's built editor and my-files mods into a Herdr app home. Herdr draws a mod's
+# Copies this plugin's built editor, my-files, my-changes and my-diff mods into a Herdr app home. Herdr draws a mod's
 # SVGs and reloads its edits only from real files, so a link would not work; rerun after each build.
 # Usage: bin/install-files <app home>
 set -eu
@@ -16,7 +16,7 @@ marker=.installed-from
 # install wrote the plugin's absolute path instead; only these installers ever wrote the file.
 marker_text=herdr-workspaces
 
-for built in editor/editor/main.js my-files/files/main.js; do
+for built in editor/editor/main.js my-files/files/main.js my-changes/list/main.js my-diff/changes/pane.js; do
   if [ ! -f "$repo/mods/$built" ]; then
     echo "the build output $repo/mods/$built is missing: run npm run build first" >&2
     exit 1
@@ -92,7 +92,9 @@ install_mod() {
   echo "copied $target"
 }
 
-check_target editor && check_target my-files || exit 1
+check_target editor && check_target my-files && check_target my-changes && check_target my-diff || exit 1
 mkdir -p "$home/mods"
 install_mod editor editor format
 install_mod my-files files icons
+install_mod my-changes list
+install_mod my-diff changes

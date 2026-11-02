@@ -1092,18 +1092,20 @@ test("window shared: another workspace's active id is replaced, and Default is n
   assert.equal(windowShared(text, undefined, "/h")["workspaces.active"], null);
 });
 
-const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "themes", "keys.json", "settings.json"] };
+const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "mods/my-changes", "mods/my-diff", "themes", "keys.json", "settings.json"] };
 const WIN = "/Users/x/.config/herdr-app-windows/acme";
 const targetsOf = (step) => [step.paths, step.to, step.path].flat().filter((p) => typeof p === "string");
 
 test("open plan: checks the window is not running, makes folders, mirrors, writes shared state, then launches", () => {
   const plan = openPlan(planInput);
-  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(7).fill("mirror"), "shared", "launch"]);
+  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(9).fill("mirror"), "shared", "launch"]);
   assert.equal(plan[0].socket, `${WIN}/herdr-app.sock`);
   assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => [s.from, s.to, s.dir]), [
     ["/Users/x/.config/herdr-app/mods/workspaces", `${WIN}/mods/workspaces`, true],
     ["/Users/x/.config/herdr-app/mods/editor", `${WIN}/mods/editor`, true],
     ["/Users/x/.config/herdr-app/mods/my-files", `${WIN}/mods/my-files`, true],
+    ["/Users/x/.config/herdr-app/mods/my-changes", `${WIN}/mods/my-changes`, true],
+    ["/Users/x/.config/herdr-app/mods/my-diff", `${WIN}/mods/my-diff`, true],
     ["/Users/x/.config/herdr-app/layouts/Workspaces.json", `${WIN}/layouts/Workspaces.json`, false],
     ["/Users/x/.config/herdr-app/keys.json", `${WIN}/keys.json`, false],
     ["/Users/x/.config/herdr-app/settings.json", `${WIN}/settings.json`, false],
