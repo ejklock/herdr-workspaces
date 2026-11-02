@@ -42,7 +42,8 @@ untouched (the layout then goes back to Herdr's `files`). The plugin adds:
 - `my-files`: the side-panel file tree, whose click opens a file in the editor, with a colored icon for each file type.
 
 The plugin is TypeScript, so installing it needs Node and the `typescript` package (`npm install` at the
-root of this repository) to build; the workspaces mod needs neither. Its icons keep their own licenses:
+root of this repository) to build; the workspaces mod needs neither. The build reads Herdr's type files from the app home (`HERDR_APP_HOME`, else `~/.config/herdr-app`).
+Its icons keep their own licenses:
 `plugins/editor/mods/my-files/LICENSE-herdr-file-icons.txt` (Apache-2.0) and
 `plugins/editor/mods/my-files/icons/LICENSE-material-icon-theme.txt` (MIT). See `plugins/editor/README.md`
 for what each mod does.

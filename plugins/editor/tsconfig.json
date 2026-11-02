@@ -18,8 +18,8 @@
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "mods/editor",
-    "paths": { "herdr": ["/Users/ejklock/.config/herdr-app/herdr.d.ts"] }
+    "paths": { "herdr": ["./types/herdr.d.ts"] }
   },
-  "files": ["/Users/ejklock/.config/herdr-app/gpui-kit.d.ts"],
+  "files": ["./types/gpui-kit.d.ts"],
   "include": ["src/editor/**/*.ts", "src/format/**/*.ts"]
 }
