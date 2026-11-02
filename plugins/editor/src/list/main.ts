@@ -3,7 +3,7 @@ import { View, div } from "gpui-kit";
 import type { Context, AsyncContext } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import type { FocusHandle } from "gpui";
-import { spaces, panes, focused, exec, run, shared, setShared, watchFolder, theme, readTextFile } from "herdr";
+import { spaces, panes, focused, exec, run, shared, setShared, watchFolder, theme } from "herdr";
 import { diffTarget, nextTargets, paneProps, totals, untrackedAdds, TARGETS_KEY } from "./target.ts";
 import { LIMIT, STATUS_ARGS, addStats, changeList, commitSteps, emptyMessage, numstatArgs, untrackedPaths, type FileChange, type Stat } from "./status.ts";
 
@@ -52,7 +52,7 @@ async function loadChanges(cwd: string, on: string | null, current: () => boolea
   const status = await git(STATUS_ARGS);
   if (status.code !== 0) throw new Error(status.stderr);
   const stats = await readStats(git);
-  const adds = await untrackedAdds(readTextFile, root, untrackedPaths(status.stdout, LIMIT), on);
+  const adds = await untrackedAdds(exec, root, untrackedPaths(status.stdout, LIMIT), on);
   if (!current()) return { kind: "stale" };
   return { kind: "ok", root, ...changeList(status.stdout, stats, adds, LIMIT) };
 }

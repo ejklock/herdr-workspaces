@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { asTarget, targetToShow, differsFrom, displayRows, hiddenLabel, loadView, untrackedRows, DIFF_FLAGS, type DiffTarget, type Loader } from "../../src/changes/rows.ts";
+import { asTarget, reloadsOnTick, targetToShow, differsFrom, displayRows, hiddenLabel, loadView, untrackedRows, DIFF_FLAGS, type DiffTarget, type Loader } from "../../src/changes/rows.ts";
 import type { Row } from "../../src/changes/diff.ts";
 
 const target: DiffTarget = { root: "/w", path: "src/a.ts", on: "box", seq: 1 };
@@ -137,12 +137,30 @@ describe("a diff with no rows", () => {
 
   it("says a deleted empty file was deleted", async () => {
     const { deps } = loader([{ code: 0, stdout: emptyGone }]);
-    assert.deepEqual(await loadView(deps, target), { kind: "message", text: "Empty file deleted" });
+    assert.deepEqual(await loadView(deps, target), { kind: "message", text: "Empty file deleted", deleted: true });
+  });
+
+  it("marks the view of a file deleted in the working tree", async () => {
+    const gone = "diff --git a/f b/f\ndeleted file mode 100644\nindex 3b18e51..0000000\n--- a/f\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b\n";
+    const { deps } = loader([{ code: 0, stdout: gone }]);
+    const view = await loadView(deps, target);
+    assert.equal(view.kind, "rows");
+    assert.equal(view.deleted, true);
+  });
+
+  it("does not mark an ordinary modified file as deleted", async () => {
+    const { deps } = loader([{ code: 0, stdout: diff }]);
+    assert.equal((await loadView(deps, target)).deleted, undefined);
+  });
+
+  it("does not mark an untracked file as deleted", async () => {
+    const { deps } = loader([{ code: 0, stdout: "" }, { code: 0, stdout: "?? src/a.ts\0" }], "a\n");
+    assert.equal((await loadView(deps, target)).deleted, undefined);
   });
 
   it("recognizes the empty blob under a longer abbreviation", async () => {
     const { deps } = loader([{ code: 0, stdout: emptyGone.replace("e69de29..0000000", "e69de29bb2d1..000000000000") }]);
-    assert.deepEqual(await loadView(deps, target), { kind: "message", text: "Empty file deleted" });
+    assert.deepEqual(await loadView(deps, target), { kind: "message", text: "Empty file deleted", deleted: true });
   });
 
   it("keeps the removed rows of a file emptied by a change", async () => {
@@ -209,6 +227,44 @@ describe("reading a target", () => {
     assert.equal(asTarget({ root: "/w", path: "a" }), undefined);
     assert.equal(asTarget({ root: 1, path: "a", seq: 1 }), undefined);
   });
+
+  it("rejects a seq that is not finite", () => {
+    for (const seq of [Number.NaN, Infinity, -Infinity]) assert.equal(asTarget({ root: "/w", path: "a", seq }), undefined);
+  });
+
+  it("keeps zero and negative seqs", () => {
+    for (const seq of [0, 1, -1]) assert.equal(asTarget({ root: "/w", path: "a", seq })?.seq, seq);
+  });
+
+  it("falls back to the props target when the shared entry has a NaN seq", () => {
+    const shared = { s1: { root: "/w", path: "a", on: "box", seq: Number.NaN } };
+    const props = { root: "/p", path: "b", seq: 3 };
+    assert.deepEqual(targetToShow(shared, props, "s1"), { root: "/p", path: "b", on: null, seq: 3 });
+  });
+});
+
+describe("reloading on a tick", () => {
+  it("reloads a remote target with no load running", () => {
+    assert.equal(reloadsOnTick(target, false), true);
+  });
+
+  it("does not reload a remote target while a load runs", () => {
+    assert.equal(reloadsOnTick(target, true), false);
+  });
+
+  it("never reloads a local target, whose folder watch does that", () => {
+    assert.equal(reloadsOnTick({ ...target, on: null }, false), false);
+    assert.equal(reloadsOnTick({ ...target, on: null }, true), false);
+  });
+
+  it("does nothing with no target", () => {
+    assert.equal(reloadsOnTick(undefined, false), false);
+  });
+
+  it("follows the current target between ticks", () => {
+    const local = { ...target, on: null };
+    assert.deepEqual([target, local, target].map(t => reloadsOnTick(t, false)), [true, false, true]);
+  });
 });
 
 describe("rows of an untracked file", () => {
@@ -265,7 +321,7 @@ describe("display rows", () => {
   });
 
   it("leaves the missing side of a change row empty", () => {
-    assert.deepEqual(displayRows(untrackedRows("a\n"), 3, new Set()), [{ kind: "change", right: { line: 1, text: "a" } }]);
+    assert.deepEqual(displayRows(untrackedRows("a\n"), 3, new Set()), [{ kind: "change", block: 0, right: { line: 1, text: "a" } }]);
   });
 });
 
@@ -344,3 +400,16 @@ describe("whether a diff pane reloads", () => {
     assert.equal(differsFrom(shown, undefined), true);
   });
 });
+
+describe("change rows keep their block number", () => {
+  it("carries the block of each shown change row", () => {
+    const rows: Row[] = [
+      { kind: "change", block: 0, right: { line: 1, text: "a" } },
+      { kind: "same", left: { line: 1, text: "b" }, right: { line: 2, text: "b" } },
+      { kind: "change", block: 1, left: { line: 2, text: "c" } },
+    ];
+    const shown = displayRows(rows, 3, new Set());
+    assert.deepEqual(shown.map(r => (r.kind === "change" ? r.block : undefined)), [0, undefined, 1]);
+  });
+});
+

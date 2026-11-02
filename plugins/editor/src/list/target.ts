@@ -59,20 +59,34 @@ export function diffTarget({ panes, focused }: {
   return shown ? { kind: "focus", pane: shown.pane } : { kind: "split", pane: focused.pane };
 }
 
-/** Lines in a file's text, the way the panel counts them: a final newline ends the last line instead of starting another; no text is no lines. */
-export function countLines(text: string | null): number {
-  return text ? text.split("\n").length - Number(text.endsWith("\n")) : 0;
-}
+type Exec = (command: string, args?: string[], options?: { cwd?: string; on?: string | null }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-/** The added count of each untracked file, by path. A null or rejected read counts 0 and never fails the others. */
+/**
+ * The added count of each untracked file, by path, from one grep run in the repository root on the panel's machine: the lines of each file, a binary file counting 0 and no file's text reaching the panel.
+ * Grep prints one `<path>:<count>\n` record per file in the order given, none for a binary or unreadable file (some greps print `<path>:0` for a binary). So the paths are walked in order with a cursor into the output: a path takes the count only when the output continues with exactly its record, else it counts 0 and the cursor stays. A failed run (no grep, an unreachable machine) counts every path 0.
+ */
 export async function untrackedAdds(
-  read: (path: string, options?: { on?: string | null }) => Promise<string | null>,
+  run: Exec,
   root: string,
   paths: readonly string[],
   on: string | null,
 ): Promise<Record<string, number>> {
-  const counts = await Promise.all(paths.map(path => read(`${root}/${path}`, { on }).then(countLines, () => 0)));
-  return Object.fromEntries(paths.map((path, i) => [path, counts[i] ?? 0]));
+  if (paths.length === 0) return {};
+  const stdout = await run("env", ["LC_ALL=C", "grep", "-c", "-I", "-H", "-e", "", "--", ...paths], { cwd: root, on })
+    .then(result => result.stdout, () => "");
+  const counts: Record<string, number> = {};
+  let cursor = 0;
+  for (const path of paths) {
+    counts[path] = 0;
+    const head = `${path}:`;
+    if (!stdout.startsWith(head, cursor)) continue;
+    const end = stdout.indexOf("\n", cursor + head.length);
+    const digits = end < 0 ? "" : stdout.slice(cursor + head.length, end);
+    if (!/^\d+$/.test(digits)) continue;
+    counts[path] = Number(digits);
+    cursor = end + 1;
+  }
+  return counts;
 }
 
 /** The header's added and removed totals over every listed file. */

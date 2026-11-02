@@ -2,7 +2,7 @@
 type: Issue
 title: Changes panel and side-by-side diff pane
 description: "Builds what issue 0006 scoped and did not deliver: a my-changes panel whose click opens one reused pane with a side-by-side diff, in three slices."
-status: open
+status: closed
 timestamp: 2026-11-02T19:51:45Z
 ---
 
@@ -32,7 +32,7 @@ Slices, each usable on its own, in this order:
    - The header has next change, previous change, and opening the file in the editor.
    - The diff refreshes when the file changes on disk.
    - Files on another machine open read-only.
-3. **Syntax colors.** A light tokenizer of the plugin's own, for the languages the editor already formats, colors keywords, strings, comments and numbers on both sides.
+3. **Syntax colors: dropped.** On 2026-11-02 the owner asked why the diff was being written from scratch rather than reusing what exists, and chose no syntax colors in the diff pane. Open in editor already shows the file in the editor's native highlighting. A tokenizer of the plugin's own was built and discarded uncommitted.
 
 ### Decision
 
@@ -41,6 +41,11 @@ Slices, each usable on its own, in this order:
 - Changed words are drawn as one row of `div` segments per line, since no rich-text primitive exists.
 - The pane runs `git diff HEAD -U1000000 --no-ext-diff --no-textconv --no-color -c diff.suppressBlankEmpty=false` with the same read-only flags as the native mod (`--no-optional-locks`, `core.fsmonitor=false`, `diff.autoRefreshIndex=false`). Like the native mod, it reads an untracked file whole as added lines.
 - The native `changes` mod in the app home stays untouched; the clone lives in `plugins/editor/` (ADR 0003, 0006's Decision).
+- The list counts the lines of untracked files with one `env LC_ALL=C grep -c -I -H -e '' -- <paths>` on the panel's machine. It parses the `name:count` records in argument order and never searches ahead, because a later name can appear inside an earlier record. A binary or unreadable file counts 0. The session measured the 122 repositories under /Volumes/Developer/www: reading each file through `readTextFile` stayed at or under 34 ms in 27 of the 28 repositories with untracked files, but one with about 136 MB of untracked `.bin` dumps took 782 ms on every 10 s refresh, against 12 ms for the grep. The owner chose the grep over caching the reads.
+- A diff of a file on another machine reloads every 10 s, skipping a tick while a load still runs, because `watchFolder` watches only local folders.
+- Previous and Next step over change blocks, in order of where each block starts, and stop at the ends without wrapping. The header shows `k/n` after a step and `n changes` before one; the position survives an expand and is clamped on reload.
+- Open in editor follows the Files panel's rule: focus an editor pane of the focused tab that already holds the file, otherwise split right; from a layout block, open a new tab. `src/changes/nav.ts` repeats that rule from `src/files/tree.ts`, because a mod can only import its own installed subfolders. The button is hidden for a file deleted in the working tree.
+- Changed words come from a longest common subsequence over word, whitespace and punctuation tokens, capped at 400 tokens per side. A pair that shares only whitespace, or that passes the cap, keeps the whole-line tint.
 
 ### Acceptance
 
@@ -48,4 +53,8 @@ Slices, each usable on its own, in this order:
 - Unchanged runs fold and expand; removed and added lines read clearly in the owner's theme.
 - `--without editor` leaves the layout's `changes` block on the native mod.
 - `npm test` is green and `herdr-app check` passes on each new mod.
-- Slices 2 and 3 meet 0006's acceptance for word highlights, navigation, live refresh and syntax colors.
+- Slice 2 meets 0006's acceptance for word highlights, navigation and live refresh. Syntax colors are out (slice 3 dropped).
+
+### Outcome
+
+Slice 1 shipped in v0.1.3 (PR #4): the my-changes panel, the reused my-diff pane, the install and the layout swap. Slice 2 shipped with this issue's close: a diff on another machine reloads every 10 s; Previous and Next step through the change blocks; Open in editor follows the Files panel's rule and is hidden for a deleted file; untracked lines are counted by one grep; and the changed words inside paired lines get a stronger tint. Slice 3 (syntax colors) was dropped by the owner, so Open in editor is the way to see the file colored. Not verified by automation: how the word tint looks in the app.
