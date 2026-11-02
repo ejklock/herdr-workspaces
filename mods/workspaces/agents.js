@@ -216,7 +216,7 @@ export default class Agents extends View {
     const collapsed = narrow();
     const sort = sortOf();
     const every = agents();
-    let list = visibleAgents(this.store, shared("workspaces.active"), every);
+    let list = visibleAgents(this.store, shared("workspaces.active"), every, spaces());
     this.listed = new Map(every.map((a) => [a.address, a.status]));
     const all = terminals();
     const shown = focused()?.agent;
@@ -233,15 +233,33 @@ export default class Agents extends View {
     list = [...pinned, ...rest];
     setAgentOrder(list.map((a) => a.address));
 
+    return this.frame({ t, collapsed, sort, byPriority, shown, all, now, list, pinned, rest, rankOf });
+  }
+
+  // The list's rows under the panel's header and footer.
+  frame(c) {
+    const { t, collapsed, sort, list } = c;
+    const rows = this.agentRows(c);
+    return this.panel(t, collapsed, sort, list, rows);
+  }
+
+  // The rows of the list: each group's header, then its agents with their sub-agents.
+  agentRows(c) {
+    const { t, collapsed, byPriority, shown, all, list } = c;
+    const { label, detail } = this.labels(list);
+    const row = this.rowOf({ ...c, label, detail });
     const withKids = (a, i) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, i, subs);
       if (this.folded.has(a.address)) return [r];
       return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority))];
     };
+    return this.groupRows(c, withKids);
+  }
 
-    // The fold chevron; folded, the count too, colored by the most urgent one.
-    const fold = (a, subs) => {
+  // The fold chevron; folded, the count too, colored by the most urgent one.
+  foldOf(t) {
+    return (a, subs) => {
       const sts = subs.map((s) => kidStatus(s.t, this.listed));
       const top = sts.reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
       const open = !this.folded.has(a.address);
@@ -265,7 +283,9 @@ export default class Agents extends View {
         .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
         .when(!open, (el) => el.child(String(subs.length)));
     };
+  }
 
+  labels(list) {
     // A row reads "space \u00b7 detail": the detail is a tab someone named or the
     // agent's own title, never an automatic tab number unless two rows would
     // otherwise read the same.
@@ -280,82 +300,115 @@ export default class Agents extends View {
     for (const a of list) {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
+    return { label, detail };
+  }
 
-    const row = (a, i, subs = []) => {
+  collapsedRow(t, a, i) {
+    return h_flex()
+      .id(`ag-${a.address}`)
+      .h(26)
+      .px(8)
+      .flex_none()
+      .items_center()
+      .gap(4)
+      .hover((s) => s.bg(t.hover))
+      .on_click(() => run("pane.focus", { pane: a.pane }))
+      .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
+      .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
+  }
+
+  pinButton(t, a, isPinned) {
+    return div()
+      .id(`pin-${a.address}`)
+      .flex_none()
+      .p(2)
+      .rounded(4)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(isPinned ? "Unpin" : "Pin to the top")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.setPins(isPinned ? this.pins.filter((p) => p !== a.address) : [...this.pins, a.address]);
+        // The row moves away from under the pointer, and no hover-out comes.
+        this.hovered = null;
+        cx.notify();
+      })
+      .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
+  }
+
+  // The program's icon; with sub-agents, clicking it folds them.
+  iconCell(a, pic, subs) {
+    return div().id(`agent-fold-${a.address}`)
+      .when(subs.length > 0, el => el.on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
+        cx.notify();
+      })).child(pic);
+  }
+
+  nameCell(t, { name, more, full, idle }) {
+    return h_flex().flex_1().min_w(0).gap(5).items_center()
+      .child(div().flex_none().max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
+      .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`· ${more}`)));
+  }
+
+  // The row's box: focus highlight, hover tracking (for the pin) and the click that focuses the agent.
+  rowFrame(t, a) {
+    return h_flex()
+      .id(`ag-${a.address}`)
+      .px(8)
+      .h(30)
+      .flex_none()
+      .rounded(8)
+      .items_center()
+      .gap(9)
+      .when(a.focused, (el) => el.bg(t.selected))
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .on_hover((on, cx) => {
+        if (on) this.hovered = a.address;
+        else if (this.hovered === a.address) this.hovered = null;
+        cx.notify();
+      })
+      .on_click(() => run("pane.focus", { pane: a.pane }));
+  }
+
+  rowName(a, label, more, full) {
+    if (full) return a.space_name || label(a);
+    return more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
+  }
+
+  rowOf(c) {
+    const { t, collapsed, byPriority, now, label, detail } = c;
+    const fold = this.foldOf(t);
+    return (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
-      if (collapsed) {
-        return h_flex()
-          .id(`ag-${a.address}`)
-          .h(26)
-          .px(8)
-          .flex_none()
-          .items_center()
-          .gap(4)
-          .hover((s) => s.bg(t.hover))
-          .on_click(() => run("pane.focus", { pane: a.pane }))
-          .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
-          .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
-      }
+      if (collapsed) return this.collapsedRow(t, a, i);
       const when = this.since(a);
       const idle = a.status === "idle" && !a.focused;
       const isPinned = this.pins.includes(a.address);
-      const pin = div()
-        .id(`pin-${a.address}`)
-        .flex_none()
-        .p(2)
-        .rounded(4)
-        .text_color(t.dim)
-        .cursor_pointer()
-        .hover((s) => s.bg(t.hover).text_color(t.foreground))
-        .tooltip(isPinned ? "Unpin" : "Pin to the top")
-        .on_click((_e, cx) => {
-          cx.stop_propagation();
-          this.setPins(isPinned ? this.pins.filter((p) => p !== a.address) : [...this.pins, a.address]);
-          // The row moves away from under the pointer, and no hover-out comes.
-          this.hovered = null;
-          cx.notify();
-        })
-        .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
+      const pin = this.pinButton(t, a, isPinned);
       // Under a space header the space goes without saying; an automatic tab number says nothing.
       // Without a space header above (priority, pinned) the row names its space.
       const full = byPriority || isPinned;
-      const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      return h_flex()
-        .id(`ag-${a.address}`)
-        .px(8)
-        .h(30)
-        .flex_none()
-        .rounded(8)
-        .items_center()
-        .gap(9)
-        .when(a.focused, (el) => el.bg(t.selected))
-        .cursor_pointer()
-        .hover((s) => s.bg(t.hover))
-        .on_hover((on, cx) => {
-          if (on) this.hovered = a.address;
-          else if (this.hovered === a.address) this.hovered = null;
-          cx.notify();
-        })
-        .on_click(() => run("pane.focus", { pane: a.pane }))
-        .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
-          .when(subs.length > 0, el => el.on_click((_e, cx) => {
-            cx.stop_propagation();
-            this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
-            cx.notify();
-          })).child(pic)))
-        .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-          .child(div().flex_none().max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
-          .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
+      const name = this.rowName(a, label, more, full);
+      return this.rowFrame(t, a)
+        .when(Boolean(pic), el => el.child(this.iconCell(a, pic, subs)))
+        .child(this.nameCell(t, { name, more, full, idle }))
         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
         .when(this.hovered === a.address, el => el.child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .child(this.status(t, a, byPriority && !isPinned));
     };
+  }
 
+  groupRows(c, withKids) {
+    const { byPriority, pinned, rest, rankOf } = c;
     // Groups in list order: spaces (grouped) or priority sections. Agents of a
     // space are next to each other in agents(), so neighbours make a group.
     const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
@@ -365,9 +418,13 @@ export default class Agents extends View {
       if (groups.at(-1)?.id === id) groups.at(-1).members.push(a);
       else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
     }
+    return this.groupsOf(c, groups, withKids);
+  }
 
-    // A group's header; it folds the group. Folded, it says how many and the most urgent state.
-    const header = (g) => {
+  // A group's header; it folds the group. Folded, it says how many and the most urgent state.
+  headerOf(c) {
+    const { t, byPriority } = c;
+    return (g) => {
       const open = !this.folded.has(g.id);
       const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
       return h_flex()
@@ -393,10 +450,17 @@ export default class Agents extends View {
           .when(!byPriority && top && top !== "idle", (el) => el.child(this.status(t, { status: top }, true)))
           .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
     };
-    const rows = collapsed
+  }
+
+  groupsOf(c, groups, withKids) {
+    const { collapsed, list } = c;
+    const header = this.headerOf(c);
+    return collapsed
       ? list.flatMap(withKids)
       : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+  }
 
+  panel(t, collapsed, sort, list, rows) {
     return v_flex()
       .size_full()
       .min_h(0)

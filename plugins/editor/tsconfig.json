@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "mods/editor",
+    "paths": { "herdr": ["./types/herdr.d.ts"] }
+  },
+  "files": ["./types/gpui-kit.d.ts"],
+  "include": ["src/editor/**/*.ts", "src/format/**/*.ts"]
+}

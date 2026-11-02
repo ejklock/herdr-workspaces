@@ -2,6 +2,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, props, window, shared, setShared, updates, layout, openOverlay } from "herdr";
 import { activeWorkspace, DEFAULT_ICON } from "./lib.js";
+import { openWorkspaceWindow } from "./window.js";
 import { ACTIVE_KEY, followWorkspaceStore, iconPath, switcherHeight, workspaceColor } from "./switcher.js";
 
 function find(node, id) {
@@ -27,7 +28,7 @@ function toggleSidebar() {
 
 export default class WorkspaceChrome extends View {
   init(p, cx) {
-    if ((props() ?? p)?.footer) followWorkspaceStore(this, cx);
+    if ((props() ?? p)?.selector) followWorkspaceStore(this, cx);
   }
   button(id, label, action) {
     const t = theme();
@@ -37,11 +38,7 @@ export default class WorkspaceChrome extends View {
   render() {
     const t = theme();
     const collapsed = narrow();
-    if (props()?.footer) {
-      const row = (id, icon, label, dim, action) => h_flex().id(id).h(28).px(8).gap(9).items_center().rounded(8)
-        .text_color(dim ? t.dim : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
-        .on_click(action).child(svg(`mods/workspaces/${icon}.svg`).size(14))
-        .when(!collapsed, el => el.child(label));
+    if (props()?.selector) {
       const active = activeWorkspace(this.store, shared(ACTIVE_KEY));
       const switcher = h_flex().id("workspace-switcher").h(32).px(collapsed ? 0 : 10).gap(8).items_center().when(collapsed, el => el.justify_center())
         .rounded(8).border(1).border_color(t.border).bg(t.raised).text_color(t.muted)
@@ -50,11 +47,20 @@ export default class WorkspaceChrome extends View {
         .child(svg(iconPath(active?.icon ?? DEFAULT_ICON)).size(14).flex_none().text_color(active ? workspaceColor(t, active.color) : t.muted))
         .when(!collapsed, el => el.child(div().flex_1().truncate().child(active?.name ?? "Default")))
         .when(!collapsed, el => el.child(svg("mods/workspaces/chevron-down.svg").size(14).flex_none()));
-      const divider = () => div().h(1).w_full().flex_none().bg(t.border).my(6);
-      return v_flex().size_full().bg(t.chrome).border_t(1).border_color(t.border).px(8).pt(6).pb(8).text_size(13)
+      // Not in the narrow rail, which has no room beside the selector.
+      return v_flex().size_full().bg(t.chrome).border_b(1).border_color(t.border).px(8).pt(6).pb(8).text_size(13)
         .when(!collapsed, el => el.child(h_flex().h(22).px(8).items_center().text_size(11.5).text_color(t.dim).child("Workspace")))
-        .child(switcher)
-        .child(divider())
+        .when(collapsed, el => el.child(switcher))
+        .when(!collapsed, el => el.child(h_flex().gap(6).items_center()
+          .child(switcher.flex_1().min_w(0))
+          .child(this.button("workspace-window", svg("mods/workspaces/window.svg").size(15), () => void openWorkspaceWindow(active?.id)).h(32).w(32))));
+    }
+    if (props()?.footer) {
+      const row = (id, icon, label, dim, action) => h_flex().id(id).h(28).px(8).gap(9).items_center().rounded(8)
+        .text_color(dim ? t.dim : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
+        .on_click(action).child(svg(`mods/workspaces/${icon}.svg`).size(14))
+        .when(!collapsed, el => el.child(label));
+      return v_flex().size_full().bg(t.chrome).border_t(1).border_color(t.border).px(8).pt(6).pb(8).text_size(13)
         .child(row("settings", "settings", "Settings", false, () => run("app.settings"))
           .when(Boolean(updates().app.ready), el => el.child(div().size(6).rounded_full().bg(t.accent))))
         .child(row("machine", "plus", "Add machine", true, () => run("mod.open", { name: "machine-add" })));

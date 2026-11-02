@@ -1,18 +1,42 @@
 #!/bin/sh
-# Copies this repository's mod and layout into a Herdr app home. Herdr draws a mod's SVGs and
-# reloads its edits only from real files, so a link would not work; rerun after each change.
-# Usage: bin/install <app home>
+# Copies this repository's workspaces mod, its layout and the optional plugins into a Herdr app home.
+# Herdr draws a mod's SVGs and reloads its edits only from real files, so a link would not work; rerun
+# after each change.
+# Usage: bin/install [--without editor] <app home>
 set -eu
 
-if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
-  echo "usage: bin/install <app home>" >&2
+usage() {
+  echo "$1" >&2
+  echo "usage: bin/install [--without editor] <app home>" >&2
   exit 2
-fi
+}
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
-home=$(cd "$1" && pwd -P)
+with_editor=1
+home_arg=
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --without)
+      [ "$#" -ge 2 ] || usage "--without needs a plugin name"
+      [ "$2" = editor ] || usage "unknown plugin: $2"
+      with_editor=0
+      shift 2
+      ;;
+    -*) usage "unknown option: $1" ;;
+    *)
+      [ -z "$home_arg" ] || usage "only one app home is allowed"
+      home_arg=$1
+      shift
+      ;;
+  esac
+done
+[ -n "$home_arg" ] && [ -d "$home_arg" ] || usage "the app home must be an existing folder"
+
+home=$(cd "$home_arg" && pwd -P)
+plugin_dir="$repo/plugins/editor"
 mod_target="$home/mods/workspaces"
-layout_target="$home/layouts/workspaces.json"
+layout_target="$home/layouts/Workspaces.json"
+earlier_layout="$home/layouts/workspaces.json"
 marker=.installed-from
 
 points_into_repo() {
@@ -39,16 +63,34 @@ check_mod() {
   return 1
 }
 
-# A plain layout file carries no marker: it counts as ours only beside our own mod copy.
-check_layout() {
-  if [ -L "$layout_target" ]; then
-    points_into_repo "$layout_target" && return 0
-    echo "refusing $layout_target: a symlink pointing elsewhere" >&2
+# A plain layout file carries no marker: it counts as ours only beside our own mod copy. Both spellings are
+# checked by name, so the result does not depend on whether the volume ignores case.
+check_layout_file() {
+  if [ -L "$1" ]; then
+    points_into_repo "$1" && return 0
+    echo "refusing $1: a symlink pointing elsewhere" >&2
     return 1
   fi
-  [ -e "$layout_target" ] || return 0
+  [ -e "$1" ] || return 0
   own_copy && return 0
-  echo "refusing $layout_target: exists and was not made by this script" >&2
+  echo "refusing $1: exists and was not made by this script" >&2
+  return 1
+}
+
+check_layout() {
+  check_layout_file "$layout_target" && check_layout_file "$earlier_layout"
+}
+
+# The side-panel Files block names one mod and Herdr has no fallback, so the choice is made at install.
+# Only the block's own "mod" value is rewritten; the anchor must match exactly once, and an unreadable
+# source counts as no match.
+source_layout="$repo/layouts/Workspaces.json"
+anchor='"mod": "files"'
+
+check_anchor() {
+  count=$(grep -cF "$anchor" "$source_layout" 2>/dev/null || true)
+  [ "$count" = 1 ] && return 0
+  echo "refusing: $source_layout must contain $anchor exactly once" >&2
   return 1
 }
 
@@ -86,12 +128,26 @@ copy_mod() {
 }
 
 copy_layout() {
-  if [ -L "$layout_target" ]; then rm "$layout_target"; fi
-  cp "$repo/layouts/workspaces.json" "$layout_target"
-  echo "copied $layout_target"
+  files_mod=files
+  [ "$with_editor" = 1 ] && files_mod=my-files
+  # The layout is written in place, like the mod files, so Herdr's watcher sees the change; only a link is
+  # removed first. The earlier lower-case file is removed only when the folder lists that exact name: on a
+  # volume that ignores case, a plain rm of it would delete the current file too.
+  unlink_if_link "$layout_target"
+  if ls -1 "$home/layouts" 2>/dev/null | grep -qx 'workspaces.json'; then rm -f "$earlier_layout"; fi
+  sed "s/\"mod\": \"files\"/\"mod\": \"$files_mod\"/" "$source_layout" > "$layout_target"
+  echo "copied $layout_target (Files mod: $files_mod)"
 }
 
-check_mod && check_layout || exit 1
+# The plugin's installer refuses a hostile target before it writes, and this runs before any workspaces
+# copy, so a refusal leaves the home untouched; a failed build stops here too.
+install_editor() {
+  (cd "$plugin_dir" && npm run build --silent) || { echo "refusing: the editor plugin build failed" >&2; return 1; }
+  sh "$plugin_dir/bin/install-files" "$home"
+}
+
+check_mod && check_layout && check_anchor || exit 1
+if [ "$with_editor" = 1 ]; then install_editor || exit 1; fi
 mkdir -p "$home/mods" "$home/layouts"
 copy_mod
 copy_layout

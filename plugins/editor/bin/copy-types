@@ -1,0 +1,36 @@
+#!/bin/sh
+# Copies Herdr's herdr.d.ts and gpui-kit.d.ts from the app home into this plugin's git-ignored types/
+# folder, which tsconfig reads: tsconfig cannot expand an environment variable or a home path, and the
+# app rewrites these files with each release, so they are copied before each build, never committed.
+# The app home is HERDR_APP_HOME (empty counts as unset), else $HOME/.config/herdr-app.
+# The types/ folder is resolved from this script's location; nothing is written, not even types/, unless both
+# files are readable and no target in types/ is a folder. The copy is staged, so a failure during it leaves types/ as it was.
+# Usage: bin/copy-types
+set -eu
+
+plugin=$(cd "$(dirname "$0")/.." && pwd -P)
+types="$plugin/types"
+app_home=${HERDR_APP_HOME:-${HOME:-}/.config/herdr-app}
+
+refuse() {
+  echo "refusing: $1 (HERDR_APP_HOME picks the app home, else \$HOME/.config/herdr-app)" >&2
+  exit 1
+}
+
+[ -d "$app_home" ] || refuse "the app home $app_home is not a folder"
+for name in herdr.d.ts gpui-kit.d.ts; do
+  [ -f "$app_home/$name" ] || refuse "$app_home/$name is not a file"
+  [ -r "$app_home/$name" ] || refuse "$app_home/$name is not readable"
+  [ ! -d "$types/$name" ] || refuse "$types/$name is a folder and nothing is moved into it"
+done
+if [ -L "$types" ]; then refuse "$types is a symlink and nothing is written through it"; fi
+
+mkdir -p "$types"
+stage=$(mktemp -d "$types/.stage.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+for name in herdr.d.ts gpui-kit.d.ts; do
+  cp -L "$app_home/$name" "$stage/$name"
+done
+for name in herdr.d.ts gpui-kit.d.ts; do
+  mv -f "$stage/$name" "$types/$name"
+done

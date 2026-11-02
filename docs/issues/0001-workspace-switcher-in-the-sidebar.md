@@ -10,7 +10,7 @@ timestamp: 2026-10-30T17:12:45Z
 
 ### What / Why
 
-Implements [ADR 0001](/adr/0001-one-core-per-company-attached-as-a-machine.md). With every company's core attached, the sidebar lists all spaces grouped by machine. The owner wants workspaces on top of that: Default holds the spaces in no workspace, and a + creates a workspace (name, icon, color) to which spaces are assigned through the usual space menu, with a switcher near Settings.
+Implements [ADR 0001](/adr/0001-one-core-per-workspace-attached-as-a-machine.md). With every workspace's core attached, the sidebar lists all spaces grouped by machine. The owner wants workspaces on top of that: Default holds the spaces in no workspace, and a + creates a workspace (name, icon, color) to which spaces are assigned through the usual space menu, with a switcher near Settings.
 
 ### Scope
 
@@ -32,7 +32,7 @@ Kept: every shipped behavior of the cloned mods (fold, +, drag, worktree items, 
 - UI text is English, matching Herdr's own; not taken: Portuguese labels mixed into an English app.
 - The Agents list shows only the agents of the visible spaces, and `agent.next`/`agent.prev` and the row numbers follow that list; not taken: listing every agent under any workspace, which the owner saw as noise (2026-10-30).
 - The first switcher entry is Default: the spaces in no workspace (an assignment to a deleted workspace counts as none), and their agents; moving a space into a workspace takes it out of Default, and moving it to Default takes it out of its workspace. Not taken: All listing every space, which the owner replaced on 2026-10-30 because a moved space stayed in the list.
-- A new space stays unassigned (shows under Default); not taken: joining the active workspace automatically.
+- A space created in a window while a workspace is active joins that workspace (written to the store), only if it arrived after the view started, is the window's active space, is in no workspace, and is decided once when first seen; the owner changed this on 2026-10-30 after eight new spaces vanished into Default. Spaces that arrive otherwise (a machine reconnecting, another window) are not taken; with Default active a new space stays in Default. Not taken: leaving every new space in Default, which the filter hides.
 - Every role lives in one mod folder, per [ADR 0002](/adr/0002-one-mod-folder-with-a-role-per-block.md).
 - `bin/install` copies the mod and the layout into the app home; not taken: symlinks, under which Herdr 0.1.9 drew none of the mod's own SVG icons (seen 2026-10-30 in the owner's window) and did not reload edits.
 - The switcher is a footer section titled "Workspace" with a bordered selector (icon in the workspace's color, name, ▾), set apart from Settings and Add machine by dividers; not taken: a selector at the top of the sidebar, or a bare row styled like Settings (too easy to miss).
