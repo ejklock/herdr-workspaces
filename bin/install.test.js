@@ -58,6 +58,35 @@ function stubRepo({ layoutText = repoLayout, build = "node build.mjs" } = {}) {
   return { copy, plugin, script: join(copy, "bin", "install") };
 }
 
+const replaceableMarkers = [
+  ["the project name", () => "herdr-workspaces"],
+  ["another absolute path", () => "/some/other/repo"],
+  ["the checkout path with a suffix", stub => `${stub.copy}-old`],
+  ["an absolute path with a space", () => "/some/other repo/herdr-workspaces"],
+];
+
+// Each writer puts a marker that is not the project's at the given path.
+const foreignMarkers = [
+  ["nothing (no marker file)", () => {}],
+  ["an empty marker", path => writeFileSync(path, "")],
+  ["the project name with a suffix", path => writeFileSync(path, "herdr-workspaces-fork")],
+  ["the project name after a space", path => writeFileSync(path, " herdr-workspaces")],
+  ["the project name in another case", path => writeFileSync(path, "Herdr-Workspaces")],
+  ["a relative path", path => writeFileSync(path, "some/repo")],
+  ["a link to a file holding the project name", path => {
+    const outside = join(scratchDir("install-outside-"), "marker");
+    writeFileSync(outside, "herdr-workspaces");
+    symlinkSync(outside, path);
+  }],
+  ["a folder", path => mkdirSync(path)],
+];
+
+function tree(dir) {
+  return readdirSync(dir, { withFileTypes: true })
+    .flatMap(e => (e.isDirectory() ? tree(join(dir, e.name)).map(f => `${e.name}/${f}`) : [e.name]))
+    .sort();
+}
+
 function assertNothingWritten(home) {
   assert.deepEqual(readdirSync(home), []);
 }
@@ -82,10 +111,10 @@ test("with no flag the workspaces, editor and my-files mods are copied as real f
   const stub = stubRepo();
   const run = install(home, { installScript: stub.script });
   assert.equal(run.status, 0, run.stderr);
-  for (const [mod, from] of [["workspaces", stub.copy], ["editor", stub.plugin], ["my-files", stub.plugin]]) {
+  for (const mod of ["workspaces", "editor", "my-files"]) {
     const dir = join(home, "mods", mod);
     assert.equal(lstatSync(dir).isSymbolicLink(), false);
-    assert.equal(readFileSync(join(dir, ".installed-from"), "utf8"), from);
+    assert.equal(readFileSync(join(dir, ".installed-from"), "utf8"), "herdr-workspaces");
   }
   assert.ok(existsSync(join(home, "mods", "workspaces", "main.js")));
   assert.equal(readFileSync(join(home, "mods", "editor", "editor", "main.js"), "utf8"), "built editor/main.js");
@@ -140,8 +169,20 @@ test("without editor installs only the workspaces mod and the layout on the ship
   const run = install(home, { args: ["--without", "editor"], installScript: stub.script });
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(readdirSync(join(home, "mods")), ["workspaces"]);
+  assert.equal(readFileSync(join(home, "mods", "workspaces", ".installed-from"), "utf8"), "herdr-workspaces");
   assert.equal(installedLayout(home), repoLayout);
   assert.ok(!existsSync(join(stub.plugin, "build-ran")));
+});
+
+test("a rerun over its own copy keeps every marker as the project name", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  assert.equal(install(home, { installScript: stub.script }).status, 0);
+  const run = install(home, { installScript: stub.script });
+  assert.equal(run.status, 0, run.stderr);
+  for (const mod of ["workspaces", "editor", "my-files"]) {
+    assert.equal(readFileSync(join(home, "mods", mod, ".installed-from"), "utf8"), "herdr-workspaces");
+  }
 });
 
 test("without editor leaves the editor and my-files copies of an earlier full install on disk and puts the layout back on files", () => {
@@ -312,17 +353,35 @@ for (const mod of ["editor", "my-files"]) {
     assert.ok(!existsSync(join(home, "layouts")));
   });
 
-  test(`a ${mod} folder whose marker names another path is refused and nothing is written`, () => {
-    const home = freshHome();
-    mkdirSync(join(home, "mods", mod), { recursive: true });
-    writeFileSync(join(home, "mods", mod, ".installed-from"), "/some/other/repo");
-    const run = install(home, { installScript: stubRepo().script });
-    assert.notEqual(run.status, 0);
-    assert.match(run.stderr, /refusing/);
-    assert.deepEqual(readdirSync(join(home, "mods")), [mod]);
-    assert.equal(readFileSync(join(home, "mods", mod, ".installed-from"), "utf8"), "/some/other/repo");
-    assert.ok(!existsSync(join(home, "layouts")));
-  });
+  for (const [label, marker] of replaceableMarkers) {
+    test(`a ${mod} folder whose marker holds ${label} is replaced and re-marked`, () => {
+      const home = freshHome();
+      const stub = stubRepo();
+      mkdirSync(join(home, "mods", mod), { recursive: true });
+      writeFileSync(join(home, "mods", mod, ".installed-from"), marker(stub));
+      writeFileSync(join(home, "mods", mod, "stale.js"), "stale");
+      writeFileSync(join(home, "mods", mod, "main.js"), "old");
+      const run = install(home, { installScript: stub.script });
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(readFileSync(join(home, "mods", mod, ".installed-from"), "utf8"), "herdr-workspaces");
+      assert.ok(!existsSync(join(home, "mods", mod, "stale.js")));
+      assert.notEqual(readFileSync(join(home, "mods", mod, "main.js"), "utf8"), "old");
+    });
+  }
+
+  for (const [label, marker] of foreignMarkers) {
+    test(`a ${mod} folder whose marker holds ${label} is refused and nothing is written`, () => {
+      const home = freshHome();
+      mkdirSync(join(home, "mods", mod), { recursive: true });
+      marker(join(home, "mods", mod, ".installed-from"));
+      const before = tree(home);
+      const run = install(home, { installScript: stubRepo().script });
+      assert.notEqual(run.status, 0);
+      assert.match(run.stderr, /refusing/);
+      assert.deepEqual(tree(home), before);
+      assert.ok(!existsSync(join(home, "layouts")));
+    });
+  }
 
   test(`a ${mod} folder whose marker is a link is refused and not written through`, () => {
     const home = freshHome();
@@ -338,6 +397,59 @@ for (const mod of ["editor", "my-files"]) {
     assert.ok(!existsSync(join(home, "layouts")));
   });
 }
+
+for (const [label, marker] of replaceableMarkers) {
+  test(`a workspaces copy whose marker holds ${label} is replaced, with the layout files beside it`, () => {
+    const home = freshHome();
+    const stub = stubRepo();
+    mkdirSync(join(home, "mods", "workspaces"), { recursive: true });
+    mkdirSync(join(home, "layouts"));
+    writeFileSync(join(home, "mods", "workspaces", ".installed-from"), marker(stub));
+    writeFileSync(join(home, "mods", "workspaces", "stale.js"), "stale");
+    writeFileSync(join(home, "layouts", "Workspaces.json"), "earlier content");
+    writeFileSync(join(home, "layouts", "workspaces.json"), "earlier lower-case content");
+    const run = install(home, { args: ["--without", "editor"], installScript: stub.script });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(readFileSync(join(home, "mods", "workspaces", ".installed-from"), "utf8"), "herdr-workspaces");
+    assert.ok(!existsSync(join(home, "mods", "workspaces", "stale.js")));
+    assert.deepEqual(readdirSync(join(home, "layouts")), ["Workspaces.json"]);
+    assert.equal(installedLayout(home), repoLayout);
+  });
+}
+
+for (const [label, marker] of foreignMarkers.filter(([name]) => !name.startsWith("a link"))) {
+  test(`a workspaces folder whose marker holds ${label} is refused with its layout file and nothing is written`, () => {
+    const home = freshHome();
+    mkdirSync(join(home, "mods", "workspaces"), { recursive: true });
+    mkdirSync(join(home, "layouts"));
+    marker(join(home, "mods", "workspaces", ".installed-from"));
+    writeFileSync(join(home, "layouts", "Workspaces.json"), "kept");
+    const before = tree(home);
+    const run = install(home, { args: ["--without", "editor"], installScript: stubRepo().script });
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /refusing/);
+    assert.deepEqual(tree(home), before);
+    assert.equal(readFileSync(join(home, "layouts", "Workspaces.json"), "utf8"), "kept");
+  });
+}
+
+test("an install from a second checkout replaces the copy made from the first and its files win", () => {
+  const home = freshHome();
+  const first = stubRepo();
+  const second = stubRepo();
+  writeFileSync(join(first.copy, "mods", "workspaces", "only-first.js"), "x");
+  writeFileSync(join(second.copy, "mods", "workspaces", "main.js"), "from second");
+  writeFileSync(join(second.plugin, "mods", "my-files", "main.js"), "from second");
+  assert.equal(install(home, { installScript: first.script }).status, 0);
+  const run = install(home, { installScript: second.script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.ok(!existsSync(join(home, "mods", "workspaces", "only-first.js")));
+  assert.equal(readFileSync(join(home, "mods", "workspaces", "main.js"), "utf8"), "from second");
+  assert.equal(readFileSync(join(home, "mods", "my-files", "main.js"), "utf8"), "from second");
+  for (const mod of ["workspaces", "editor", "my-files"]) {
+    assert.equal(readFileSync(join(home, "mods", mod, ".installed-from"), "utf8"), "herdr-workspaces");
+  }
+});
 
 test("a plugin build that fails stops the install before any copy", () => {
   const home = freshHome();

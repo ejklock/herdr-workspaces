@@ -32,9 +32,8 @@ bin/install ~/.config/herdr-app
 The script copies `mods/workspaces` (without tests and editor files) and `layouts/Workspaces.json` (replacing an earlier `workspaces.json` it installed) into
 the app home; Herdr draws a mod's icons and reloads its edits only from real files, not links. Rerun it
 after each change: Herdr picks the edit up in the open window. The copy carries a `.installed-from` file
-naming this repository. The layout's side-panel Files block uses the `my-files` mod when the editor
-plugin is installed (the default), and Herdr's `files` with `--without editor`. A rerun replaces its own
-earlier copy or an earlier link into this repository and refuses anything else (another folder, a foreign
+naming the project (`herdr-workspaces`), not the checkout. The layout's side-panel Files block uses the `my-files` mod when the editor
+plugin is installed (the default), and Herdr's `files` with `--without editor`. A rerun replaces a copy made from any checkout of the project (an earlier marker holding a checkout path counts too) or an earlier link into this repository and refuses anything else (another folder, a foreign
 link, a layout file it did not make), checking every target and the source layout before writing any. After updating from an install that used the earlier `workspaces` layout, pick Workspaces once in Settings; this starts Herdr's per-layout clicks (sidebar width, the layout's theme picks) fresh.
 
 ## Plugins

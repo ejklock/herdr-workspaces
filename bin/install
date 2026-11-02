@@ -38,6 +38,9 @@ mod_target="$home/mods/workspaces"
 layout_target="$home/layouts/Workspaces.json"
 earlier_layout="$home/layouts/workspaces.json"
 marker=.installed-from
+# Names the project, not the checkout, so a copy made from any other checkout of it is still ours. An earlier
+# install wrote the checkout's absolute path instead; only these installers ever wrote the file.
+marker_text=herdr-workspaces
 
 points_into_repo() {
   case $(readlink "$1") in
@@ -47,10 +50,14 @@ points_into_repo() {
 }
 
 own_copy() {
-  [ -f "$mod_target/$marker" ] && [ "$(cat "$mod_target/$marker")" = "$repo" ]
+  [ -f "$mod_target/$marker" ] || return 1
+  case $(cat "$mod_target/$marker") in
+    "$marker_text" | /*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
-# The mod folder may be absent, an earlier link into this repository, or this repository's own copy.
+# The mod folder may be absent, an earlier link into this repository, or a copy this project made.
 check_mod() {
   if [ -L "$mod_target" ]; then
     points_into_repo "$mod_target" && return 0
@@ -59,11 +66,11 @@ check_mod() {
   fi
   [ -e "$mod_target" ] || return 0
   own_copy && return 0
-  echo "refusing $mod_target: not a copy made from $repo" >&2
+  echo "refusing $mod_target: not a copy made by herdr-workspaces" >&2
   return 1
 }
 
-# A plain layout file carries no marker: it counts as ours only beside our own mod copy. Both spellings are
+# A plain layout file carries no marker: it counts as ours only beside a mod copy this project made. Both spellings are
 # checked by name, so the result does not depend on whether the volume ignores case.
 check_layout_file() {
   if [ -L "$1" ]; then
@@ -112,7 +119,7 @@ copy_mod() {
   mkdir -p "$mod_target"
   # The marker goes first so a copy that fails partway is still recognised as ours on the next run.
   unlink_if_link "$mod_target/$marker"
-  printf '%s' "$repo" > "$mod_target/$marker"
+  printf '%s' "$marker_text" > "$mod_target/$marker"
   for file in "$mod_target"/*; do
     [ -f "$file" ] || continue
     name=${file##*/}

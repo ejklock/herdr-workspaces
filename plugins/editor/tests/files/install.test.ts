@@ -46,12 +46,12 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("installing my-files", () => {
-  it("copies the built mod into a new real folder and marks it with the repo path", () => {
+  it("copies the built mod into a new real folder and marks it with the project name", () => {
     const run = install(home);
     assert.equal(run.status, 0, run.stderr);
     assert.equal(lstatSync(target()).isSymbolicLink(), false);
     assert.deepEqual(tree(target()), [".installed-from", ...svgs, ...icons, "files/main.js", "files/tree.js", "main.js", "mod.json"].sort());
-    assert.equal(readFileSync(target(".installed-from"), "utf8"), repo);
+    assert.equal(readFileSync(target(".installed-from"), "utf8"), "herdr-workspaces");
     assert.equal(readFileSync(target("files/main.js"), "utf8"), "built main.js");
   });
 
@@ -91,13 +91,14 @@ describe("installing my-files", () => {
     assert.deepEqual(tree(target()), ["mine.txt"]);
   });
 
-  it("refuses a real folder marked by another repo and leaves it untouched", () => {
+  it("replaces a real folder marked by another checkout's path and re-marks it", () => {
     write(target(".installed-from"), "/some/other/repo");
-    write(target("mine.txt"), "keep");
+    write(target("stale.txt"), "stale");
     const run = install(home);
-    assert.notEqual(run.status, 0);
-    assert.deepEqual(tree(target()), [".installed-from", "mine.txt"]);
-    assert.equal(readFileSync(target(".installed-from"), "utf8"), "/some/other/repo");
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(existsSync(target("stale.txt")), false);
+    assert.equal(readFileSync(target(".installed-from"), "utf8"), "herdr-workspaces");
+    assert.equal(readFileSync(target("main.js"), "utf8"), "src main.js");
   });
 
   it("removes from the copy a file that is gone from the source on a rerun", () => {
@@ -215,14 +216,14 @@ describe("installing my-files", () => {
     assert.equal(lstatSync(target(".installed-from")).isSymbolicLink(), true);
   });
 
-  it("refuses a folder whose marker holds the repo path followed by more text", () => {
+  it("replaces a folder whose marker holds the repo path followed by more text", () => {
     mkdirSync(target(), { recursive: true });
     writeFileSync(target(".installed-from"), `${repo}-old`);
-    writeFileSync(target("keep.txt"), "kept");
+    writeFileSync(target("keep.txt"), "gone");
     const run = install(home);
-    assert.notEqual(run.status, 0);
-    assert.equal(readFileSync(target("keep.txt"), "utf8"), "kept");
-    assert.equal(readFileSync(target(".installed-from"), "utf8"), `${repo}-old`);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(existsSync(target("keep.txt")), false);
+    assert.equal(readFileSync(target(".installed-from"), "utf8"), "herdr-workspaces");
   });
 
   it("refuses a link into a sibling folder whose name begins with the repo's name and leaves it untouched", () => {
@@ -242,7 +243,7 @@ describe("installing my-files", () => {
     const failed = install(home);
     chmodSync(source("main.js"), 0o644);
     assert.notEqual(failed.status, 0, "the copy of an unreadable file fails");
-    assert.equal(readFileSync(target(".installed-from"), "utf8"), repo);
+    assert.equal(readFileSync(target(".installed-from"), "utf8"), "herdr-workspaces");
     const run = install(home);
     assert.equal(run.status, 0, run.stderr);
     assert.equal(readFileSync(target("main.js"), "utf8"), "src main.js");
@@ -274,7 +275,7 @@ describe("installing my-files", () => {
     assert.equal(run.status, 0, run.stderr);
     assert.equal(lstatSync(editorTarget()).isSymbolicLink(), false);
     assert.deepEqual(tree(editorTarget()), [".installed-from", "editor/main.js", "editor/pane.js", "format/run.js", "main.js", "mod.json"].sort());
-    assert.equal(readFileSync(editorTarget(".installed-from"), "utf8"), repo);
+    assert.equal(readFileSync(editorTarget(".installed-from"), "utf8"), "herdr-workspaces");
     assert.equal(readFileSync(editorTarget("editor/pane.js"), "utf8"), "built editor/pane.js");
   });
 
@@ -309,12 +310,13 @@ describe("installing my-files", () => {
     assert.equal(existsSync(target()), false);
   });
 
-  it("refuses an editor folder marked by another repo and writes neither mod", () => {
+  it("replaces an editor folder marked by another checkout's path and re-marks it", () => {
     write(editorTarget(".installed-from"), "/some/other/repo");
     const run = install(home);
-    assert.notEqual(run.status, 0);
-    assert.deepEqual(tree(editorTarget()), [".installed-from"]);
-    assert.equal(existsSync(target()), false);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(readFileSync(editorTarget(".installed-from"), "utf8"), "herdr-workspaces");
+    assert.ok(existsSync(editorTarget("editor/main.js")));
+    assert.ok(existsSync(target("main.js")));
   });
 
   it("refuses an editor folder whose marker is a link and does not write through it", () => {
@@ -348,5 +350,84 @@ describe("installing my-files", () => {
     assert.equal(run.status, 2);
     assert.match(run.stderr, /usage/);
     assert.equal(existsSync(missing), false);
+  });
+});
+
+describe("which marker counts as the project's", () => {
+  const mods: [string, (name?: string) => string][] = [["my-files", target], ["editor", editorTarget]];
+  const replaceable: [string, () => string][] = [
+    ["the project name", () => "herdr-workspaces"],
+    ["another absolute path", () => "/some/other/repo"],
+    ["the plugin path with a suffix", () => `${repo}-old`],
+    ["an absolute path with a space", () => "/some/other repo/plugins/editor"],
+  ];
+  const foreign: [string, (path: string) => void][] = [
+    ["nothing", () => {}],
+    ["an empty marker", path => writeFileSync(path, "")],
+    ["the project name with a suffix", path => writeFileSync(path, "herdr-workspaces-fork")],
+    ["the project name after a space", path => writeFileSync(path, " herdr-workspaces")],
+    ["the project name in another case", path => writeFileSync(path, "Herdr-Workspaces")],
+    ["a relative path", path => writeFileSync(path, "some/repo")],
+    ["a link to a file holding the project name", path => {
+      const outside = join(root, "outside.txt");
+      writeFileSync(outside, "herdr-workspaces");
+      symlinkSync(outside, path);
+    }],
+    ["a folder", path => mkdirSync(path)],
+  ];
+
+  for (const [mod, where] of mods) {
+    for (const [label, text] of replaceable) {
+      it(`replaces a ${mod} folder whose marker holds ${label} and refreshes its files`, () => {
+        write(where(".installed-from"), text());
+        write(where("stale.txt"), "stale");
+        write(where("main.js"), "old");
+        const run = install(home);
+        assert.equal(run.status, 0, run.stderr);
+        assert.equal(readFileSync(where(".installed-from"), "utf8"), "herdr-workspaces");
+        assert.equal(existsSync(where("stale.txt")), false);
+        assert.notEqual(readFileSync(where("main.js"), "utf8"), "old");
+      });
+    }
+
+    for (const [label, put] of foreign) {
+      it(`refuses a ${mod} folder whose marker holds ${label} and writes neither mod`, () => {
+        mkdirSync(where(), { recursive: true });
+        put(where(".installed-from"));
+        write(where("keep.txt"), "kept");
+        const before = tree(where());
+        const run = install(home);
+        assert.notEqual(run.status, 0);
+        assert.match(run.stderr, /refusing/);
+        assert.deepEqual(tree(where()), before);
+        assert.equal(readFileSync(where("keep.txt"), "utf8"), "kept");
+        assert.equal(existsSync(join(home, "mods", mod === "editor" ? "my-files" : "editor")), false);
+      });
+    }
+  }
+
+  it("writes the project name to both markers on a rerun over its own copies", () => {
+    assert.equal(install(home).status, 0);
+    assert.equal(install(home).status, 0);
+    assert.equal(readFileSync(editorTarget(".installed-from"), "utf8"), "herdr-workspaces");
+    assert.equal(readFileSync(target(".installed-from"), "utf8"), "herdr-workspaces");
+  });
+
+  it("replaces the copies made from one checkout when installing from another", () => {
+    assert.equal(install(home).status, 0);
+    const second = join(root, "second");
+    mkdirSync(join(second, "bin"), { recursive: true });
+    copyFileSync(script, join(second, "bin", "install-files"));
+    for (const name of ["main.js", "mod.json"]) {
+      write(join(second, "mods", "my-files", name), "second");
+      write(join(second, "mods", "editor", name), "second");
+    }
+    write(join(second, "mods", "my-files", "files", "main.js"), "second");
+    write(join(second, "mods", "editor", "editor", "main.js"), "second");
+    const run = spawnSync("sh", [join(second, "bin", "install-files"), home], { encoding: "utf8" });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(readFileSync(target("main.js"), "utf8"), "second");
+    assert.equal(readFileSync(editorTarget("main.js"), "utf8"), "second");
+    assert.deepEqual(tree(target("icons")), []);
   });
 });
