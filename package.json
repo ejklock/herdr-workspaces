@@ -24,7 +24,10 @@
     "url": "https://github.com/ejklock/herdr-workspaces/issues"
   },
   "type": "module",
+  "workspaces": [
+    "plugins/*"
+  ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test bin mods && npm test --workspaces --if-present"
   }
 }

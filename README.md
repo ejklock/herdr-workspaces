@@ -27,10 +27,30 @@ bin/install ~/.config/herdr-app
 The script copies `mods/workspaces` (without tests and editor files) and `layouts/workspaces.json` into
 the app home; Herdr draws a mod's icons and reloads its edits only from real files, not links. Rerun it
 after each change: Herdr picks the edit up in the open window. The copy carries a `.installed-from` file
-naming this repository. The layout's side-panel Files block uses the `my-files` mod when the app home
-already has a `mods/my-files` folder, and Herdr's `files` otherwise. A rerun replaces its own earlier
-copy or an earlier link into this repository and refuses anything else (another folder, a foreign link,
-a layout file it did not make), checking both targets and the source layout before writing either.
+naming this repository. The layout's side-panel Files block uses the `my-files` mod when the editor
+plugin is installed (the default), and Herdr's `files` with `--without editor`. A rerun replaces its own
+earlier copy or an earlier link into this repository and refuses anything else (another folder, a foreign
+link, a layout file it did not make), checking every target and the source layout before writing any.
+
+## Plugins
+
+`bin/install` also installs the editor plugin from `plugins/editor/` by default; `bin/install --without editor
+<app home>` skips it, builds nothing and leaves any editor or `my-files` copy already in the app home
+untouched (the layout then goes back to Herdr's `files`). The plugin adds:
+
+- `editor`: an editable file editor pane (save, formatters, conflict handling).
+- `my-files`: the side-panel file tree, whose click opens a file in the editor, with a colored icon for each file type.
+
+The plugin is TypeScript, so installing it needs Node and the `typescript` package (`npm install` at the
+root of this repository) to build; the workspaces mod needs neither. Its icons keep their own licenses:
+`plugins/editor/mods/my-files/LICENSE-herdr-file-icons.txt` (Apache-2.0) and
+`plugins/editor/mods/my-files/icons/LICENSE-material-icon-theme.txt` (MIT). See `plugins/editor/README.md`
+for what each mod does.
+
+If you used the old `herdr-editor` repository, with a link or a copy of its `editor` or `my-files` mod in
+your app home: remove that link or copy (`mods/editor`, `mods/my-files`), then run `bin/install <app home>`.
+The installer refuses a link pointing outside this repository and a folder it did not make, and writes
+nothing in that case.
 
 ## Usage
 
@@ -85,7 +105,7 @@ Herdr warns installers about mods that reach the network, run programs or read f
 ## Development
 
 ```sh
-npm test                                   # lib.test.js, node --test
+npm test                                   # this repository's tests, then each plugin's
 bin/install <scratch app home>
 herdr-app check <scratch app home>/mods/workspaces
 ```

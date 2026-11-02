@@ -25,21 +25,21 @@ The pane's text is replaced only by text a save just wrote, and only when it dif
 
 ## Build and install
 
+This plugin lives in the herdr-workspaces repository under `plugins/editor/`; run these from this folder, after `npm install` at the repository root (the root `bin/install` does the build and the copy for you).
+
 ```
-npm install
 npm run build        # emits mods/editor/editor/*.js and mods/editor/format/*.js (tsconfig.json), and mods/my-files/files/*.js (tsconfig.files.json); each mod's main.js re-exports its entry
 npm run typecheck    # src against the app's .d.ts, tests against @types/node
 npm test
 npm run coverage     # same tests, writes coverage/lcov.info for src and stamps the gate's receipt
-ln -s "$PWD/mods/editor" ~/.config/herdr-app/mods/editor
-npm run install:files  # builds, then copies mods/my-files into ~/.config/herdr-app/mods/my-files
+npm run install:files  # builds, then copies mods/editor and mods/my-files into ~/.config/herdr-app/mods/
 ```
 
-my-files is installed by copy, not by link: Herdr draws a mod's SVGs only from real files, so a linked my-files shows its tree with no icons. `bin/install-files <app home>` (what `npm run install:files` runs) writes only `<app home>/mods/my-files`, marks it with `.installed-from` (this repo's path), replaces an earlier link into this repo, and refuses a link pointing elsewhere, a folder it did not make, and a `.installed-from` that is itself a link (a link cannot prove ownership, so it is never written through). Rerun `npm run install:files` after each build to update the copy. The `editor` mod has no assets and stays linked.
+Both mods are installed by copy, not by link: Herdr draws a mod's SVGs only from real files, so a linked my-files shows its tree with no icons. `bin/install-files <app home>` (what `npm run install:files` runs) writes only `<app home>/mods/editor` and `<app home>/mods/my-files`, marks each with `.installed-from` (this plugin's path), replaces an earlier link into this plugin, and refuses, writing neither, a link pointing elsewhere (such as one into the old herdr-editor checkout), a folder it did not make, and a `.installed-from` that is itself a link (a link cannot prove ownership, so it is never written through). Rerun `npm run install:files` after each build to update the copies. The root `bin/install` runs the build and this script, and also installs the workspaces mod and the layout.
 
 `tsconfig.json` and `tsconfig.files.json` read the app's `herdr.d.ts` and `gpui-kit.d.ts` in place from `~/.config/herdr-app` (an absolute path; adjust it for another home). The app rewrites those files, so they are never copied.
 
-A rebuild through the link did not reload an already open pane when observed; close and reopen the pane to run new code.
+A rebuild did not reload an already open pane when observed (with the mod linked); after reinstalling, close and reopen the pane to run new code.
 
 ## Use
 

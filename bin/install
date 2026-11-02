@@ -1,16 +1,39 @@
 #!/bin/sh
-# Copies this repository's mod and layout into a Herdr app home. Herdr draws a mod's SVGs and
-# reloads its edits only from real files, so a link would not work; rerun after each change.
-# Usage: bin/install <app home>
+# Copies this repository's workspaces mod, its layout and the optional plugins into a Herdr app home.
+# Herdr draws a mod's SVGs and reloads its edits only from real files, so a link would not work; rerun
+# after each change.
+# Usage: bin/install [--without editor] <app home>
 set -eu
 
-if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
-  echo "usage: bin/install <app home>" >&2
+usage() {
+  echo "$1" >&2
+  echo "usage: bin/install [--without editor] <app home>" >&2
   exit 2
-fi
+}
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
-home=$(cd "$1" && pwd -P)
+with_editor=1
+home_arg=
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --without)
+      [ "$#" -ge 2 ] || usage "--without needs a plugin name"
+      [ "$2" = editor ] || usage "unknown plugin: $2"
+      with_editor=0
+      shift 2
+      ;;
+    -*) usage "unknown option: $1" ;;
+    *)
+      [ -z "$home_arg" ] || usage "only one app home is allowed"
+      home_arg=$1
+      shift
+      ;;
+  esac
+done
+[ -n "$home_arg" ] && [ -d "$home_arg" ] || usage "the app home must be an existing folder"
+
+home=$(cd "$home_arg" && pwd -P)
+plugin_dir="$repo/plugins/editor"
 mod_target="$home/mods/workspaces"
 layout_target="$home/layouts/workspaces.json"
 marker=.installed-from
@@ -100,13 +123,21 @@ copy_mod() {
 
 copy_layout() {
   files_mod=files
-  [ -d "$home/mods/my-files" ] && files_mod=my-files
+  [ "$with_editor" = 1 ] && files_mod=my-files
   if [ -L "$layout_target" ]; then rm "$layout_target"; fi
   sed "s/\"mod\": \"files\"/\"mod\": \"$files_mod\"/" "$source_layout" > "$layout_target"
   echo "copied $layout_target (Files mod: $files_mod)"
 }
 
+# The plugin's installer refuses a hostile target before it writes, and this runs before any workspaces
+# copy, so a refusal leaves the home untouched; a failed build stops here too.
+install_editor() {
+  (cd "$plugin_dir" && npm run build --silent) || { echo "refusing: the editor plugin build failed" >&2; return 1; }
+  sh "$plugin_dir/bin/install-files" "$home"
+}
+
 check_mod && check_layout && check_anchor || exit 1
+if [ "$with_editor" = 1 ]; then install_editor || exit 1; fi
 mkdir -p "$home/mods" "$home/layouts"
 copy_mod
 copy_layout

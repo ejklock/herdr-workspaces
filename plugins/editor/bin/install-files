@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copies this repository's built my-files mod into a Herdr app home. Herdr draws a mod's SVGs and
-# reloads its edits only from real files, so a link would not work; rerun after each build.
+# Copies this plugin's built editor and my-files mods into a Herdr app home. Herdr draws a mod's
+# SVGs and reloads its edits only from real files, so a link would not work; rerun after each build.
 # Usage: bin/install-files <app home>
 set -eu
 
@@ -11,17 +11,18 @@ fi
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 home=$(cd "$1" && pwd -P)
-source_dir="$repo/mods/my-files"
-target="$home/mods/my-files"
 marker=.installed-from
 
-if [ ! -f "$source_dir/files/main.js" ]; then
-  echo "the build output $source_dir/files/main.js is missing: run npm run build first" >&2
-  exit 1
-fi
+for built in editor/editor/main.js my-files/files/main.js; do
+  if [ ! -f "$repo/mods/$built" ]; then
+    echo "the build output $repo/mods/$built is missing: run npm run build first" >&2
+    exit 1
+  fi
+done
 
-# The target may be absent, an earlier link into this repository, or this repository's own copy.
+# A target may be absent, an earlier link into this repository, or this repository's own copy.
 check_target() {
+  target="$home/mods/$1"
   if [ -L "$target" ]; then
     case $(readlink "$target") in
       "$repo"/*) return 0 ;;
@@ -68,13 +69,23 @@ sync_folder() {
   done
 }
 
-check_target || exit 1
+# Usage: install_mod <mod name> <subfolder>...
+install_mod() {
+  mod=$1
+  shift
+  target="$home/mods/$mod"
+  if [ -L "$target" ]; then rm "$target"; fi
+  mkdir -p "$target"
+  # The marker goes first so a copy that fails partway is still recognised as ours on the next run.
+  printf '%s' "$repo" > "$target/$marker"
+  sync_folder "$repo/mods/$mod" "$target"
+  for sub in "$@"; do
+    sync_folder "$repo/mods/$mod/$sub" "$target/$sub"
+  done
+  echo "copied $target"
+}
+
+check_target editor && check_target my-files || exit 1
 mkdir -p "$home/mods"
-if [ -L "$target" ]; then rm "$target"; fi
-mkdir -p "$target"
-# The marker goes first so a copy that fails partway is still recognised as ours on the next run.
-printf '%s' "$repo" > "$target/$marker"
-sync_folder "$source_dir" "$target"
-sync_folder "$source_dir/files" "$target/files"
-sync_folder "$source_dir/icons" "$target/icons"
-echo "copied $target"
+install_mod editor editor format
+install_mod my-files files icons

@@ -19,6 +19,8 @@ const write = (path: string, text: string) => {
 };
 const source = (name: string) => join(repo, "mods", "my-files", name);
 const target = (name = "") => join(home, "mods", "my-files", name);
+const editorSource = (name: string) => join(repo, "mods", "editor", name);
+const editorTarget = (name = "") => join(home, "mods", "editor", name);
 const install = (...args: string[]) => spawnSync("sh", [join(repo, "bin", "install-files"), ...args], { encoding: "utf8" });
 const tree = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? tree(join(dir, e.name)).map(f => `${e.name}/${f}`) : [e.name])).sort();
@@ -33,6 +35,10 @@ beforeEach(() => {
   for (const name of ["main.js", "mod.json", ...svgs]) write(source(name), `src ${name}`);
   for (const name of icons) write(source(name), `icon ${name}`);
   for (const name of ["main.js", "tree.js"]) write(source(`files/${name}`), `built ${name}`);
+  write(editorSource("main.js"), "export { default } from \"./editor/main.js\";");
+  write(editorSource("mod.json"), "{}");
+  for (const name of ["editor/main.js", "editor/pane.js", "format/run.js"]) write(editorSource(name), `built ${name}`);
+  for (const name of ["editor/pane.d.ts", "jsconfig.json", "editor/pane.test.js"]) write(editorSource(name), "not shipped");
   for (const name of ["gpui-kit.d.ts", "jsconfig.json", "files/gpui-kit.d.ts", "files/tree.d.ts", "files/tree.test.js"]) write(source(name), "not shipped");
   mkdirSync(home, { recursive: true });
 });
@@ -257,6 +263,73 @@ describe("installing my-files", () => {
 
   it("refuses when the build output is missing, names npm run build and writes nothing", () => {
     rmSync(source("files/main.js"));
+    const run = install(home);
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /npm run build/);
+    assert.equal(existsSync(join(home, "mods")), false);
+  });
+
+  it("copies the built editor mod into a new real folder with its own marker and no declaration or test files", () => {
+    const run = install(home);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(lstatSync(editorTarget()).isSymbolicLink(), false);
+    assert.deepEqual(tree(editorTarget()), [".installed-from", "editor/main.js", "editor/pane.js", "format/run.js", "main.js", "mod.json"].sort());
+    assert.equal(readFileSync(editorTarget(".installed-from"), "utf8"), repo);
+    assert.equal(readFileSync(editorTarget("editor/pane.js"), "utf8"), "built editor/pane.js");
+  });
+
+  it("updates the editor copy on a rerun and removes a built file gone from the source", () => {
+    assert.equal(install(home).status, 0);
+    write(editorSource("editor/main.js"), "rebuilt");
+    rmSync(editorSource("format/run.js"));
+    assert.equal(install(home).status, 0);
+    assert.equal(readFileSync(editorTarget("editor/main.js"), "utf8"), "rebuilt");
+    assert.equal(existsSync(editorTarget("format/run.js")), false);
+  });
+
+  it("replaces an editor link into the repo with a real folder", () => {
+    mkdirSync(join(home, "mods"));
+    symlinkSync(join(repo, "mods", "editor"), editorTarget());
+    const run = install(home);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(lstatSync(editorTarget()).isSymbolicLink(), false);
+    assert.equal(existsSync(editorSource(".installed-from")), false);
+  });
+
+  it("refuses an editor link pointing elsewhere and writes neither mod", () => {
+    const elsewhere = join(root, "elsewhere");
+    mkdirSync(elsewhere);
+    mkdirSync(join(home, "mods"));
+    symlinkSync(elsewhere, editorTarget());
+    const run = install(home);
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /refusing/);
+    assert.equal(lstatSync(editorTarget()).isSymbolicLink(), true);
+    assert.deepEqual(readdirSync(elsewhere), []);
+    assert.equal(existsSync(target()), false);
+  });
+
+  it("refuses an editor folder marked by another repo and writes neither mod", () => {
+    write(editorTarget(".installed-from"), "/some/other/repo");
+    const run = install(home);
+    assert.notEqual(run.status, 0);
+    assert.deepEqual(tree(editorTarget()), [".installed-from"]);
+    assert.equal(existsSync(target()), false);
+  });
+
+  it("refuses an editor folder whose marker is a link and does not write through it", () => {
+    const outside = join(root, "outside.txt");
+    writeFileSync(outside, repo);
+    mkdirSync(editorTarget(), { recursive: true });
+    symlinkSync(outside, editorTarget(".installed-from"));
+    const run = install(home);
+    assert.notEqual(run.status, 0);
+    assert.equal(readFileSync(outside, "utf8"), repo);
+    assert.equal(existsSync(target()), false);
+  });
+
+  it("refuses when the editor build output is missing, names npm run build and writes nothing", () => {
+    rmSync(editorSource("editor/main.js"));
     const run = install(home);
     assert.notEqual(run.status, 0);
     assert.match(run.stderr, /npm run build/);
