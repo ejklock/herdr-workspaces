@@ -2,7 +2,7 @@
 type: Issue
 title: Space groups in the sidebar
 description: Named folding groups, one level deep, per workspace, filled from the space menu or by drag.
-status: open
+status: closed
 timestamp: 2026-11-02T13:33:35Z
 ---
 
@@ -38,3 +38,7 @@ With the machine headers gone ([issue 0002](/issues/0002-sidebar-without-machine
 ### Plan
 
 One coder slice after issue 0002, because it changes the same files.
+
+### Outcome
+
+Shipped in 7bacaef: named groups per workspace and Default, folding headers, "Move to group…", drag onto a group, Rename and Delete on a header; a nested worktree row moves with its main checkout. Tracked: the background git check of a nested worktree reads its own group entry instead of its main checkout's.

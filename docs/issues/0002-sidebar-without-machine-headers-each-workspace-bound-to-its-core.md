@@ -2,7 +2,7 @@
 type: Issue
 title: Sidebar without machine headers, each workspace bound to its core
 description: Each workspace names its core; the sidebar drops the headers of the local and workspace cores, and new spaces go to the active workspace's core.
-status: open
+status: closed
 timestamp: 2026-11-02T13:33:34Z
 ---
 
@@ -47,3 +47,7 @@ Builds on [ADR 0001](/adr/0001-one-core-per-workspace-attached-as-a-machine.md) 
 ### Plan
 
 One coder slice in `mods/workspaces/` (lib, spaces, menu, dialog, agents, main) and the docs, tested in a scratch app home with scratch cores; the session then installs into the owner's home, the owner binds the three workspaces and changes Cmd+N.
+
+### Outcome
+
+Shipped in 6d30f4b (each workspace names its core; the sidebar draws no machine headers for local cores) and 3dba0e3 (the dialog's Core row picks a free `sh -c` core; "Move to workspace…" only on a space of another machine; a workspace with no core shows a row that opens Edit).

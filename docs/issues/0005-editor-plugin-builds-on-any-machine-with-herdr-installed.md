@@ -2,7 +2,7 @@
 type: Issue
 title: Editor plugin builds on any machine with Herdr installed
 description: The editor plugin's TypeScript config reads Herdr's type files from one machine's absolute path; it should read them from the app home of whoever builds.
-status: open
+status: closed
 timestamp: 2026-11-02T14:37:11Z
 ---
 
@@ -26,3 +26,7 @@ Follows [issue 0004](/issues/0004-editor-plugin-moved-into-the-repository.md): `
 - With `HOME` and `HERDR_APP_HOME` pointing at a scratch app home holding the two type files, the plugin's build, typecheck and tests pass.
 - With no type files there, each stops before tsc with the message, non-zero.
 - `git ls-files plugins/editor | xargs grep -l /Users/` prints nothing.
+
+### Outcome
+
+Shipped in ddaa23a (`plugins/editor/bin/copy-types` copies Herdr's type files from `HERDR_APP_HOME`, else `~/.config/herdr-app`, before build and typecheck) and b750eb6 (docs).

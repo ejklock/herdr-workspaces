@@ -2,7 +2,7 @@
 type: Issue
 title: Editor plugin moved into the repository
 description: Move herdr-editor into plugins/editor with its history and install it with the workspaces mod by default.
-status: open
+status: closed
 blocked_by: [herdr-editor file-icons work committed (t2c)]
 timestamp: 2026-11-02T13:33:36Z
 ---
@@ -36,3 +36,7 @@ Implements [ADR 0003](/adr/0003-optional-plugins-live-self-contained-in-the-repo
 ### Plan
 
 One coder slice once herdr-editor's icons work is committed; push and the archive of herdr-editor wait for the owner.
+
+### Outcome
+
+Shipped in d8011ae and the history merge 547812e (`git log --follow plugins/editor/src/editor/main.ts` reaches the first herdr-editor commit), and 33238fe (`bin/install` installs the plugin unless `--without editor`).
