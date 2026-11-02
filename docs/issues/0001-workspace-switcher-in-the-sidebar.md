@@ -10,7 +10,7 @@ timestamp: 2026-10-30T17:12:45Z
 
 ### What / Why
 
-Implements [ADR 0001](/adr/0001-one-core-per-company-attached-as-a-machine.md). With every company's core attached, the sidebar lists all spaces grouped by machine. The owner wants workspaces on top of that: Default holds the spaces in no workspace, and a + creates a workspace (name, icon, color) to which spaces are assigned through the usual space menu, with a switcher near Settings.
+Implements [ADR 0001](/adr/0001-one-core-per-workspace-attached-as-a-machine.md). With every workspace's core attached, the sidebar lists all spaces grouped by machine. The owner wants workspaces on top of that: Default holds the spaces in no workspace, and a + creates a workspace (name, icon, color) to which spaces are assigned through the usual space menu, with a switcher near Settings.
 
 ### Scope
 

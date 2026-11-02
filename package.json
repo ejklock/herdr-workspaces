@@ -1,7 +1,7 @@
 {
   "name": "herdr-workspaces",
   "private": true,
-  "description": "A Herdr app layout and mod: a workspace switcher that groups spaces by company or client, across several herdr-core machines.",
+  "description": "A Herdr app layout and mod: a workspace switcher that groups spaces into workspaces across several herdr-core machines.",
   "keywords": [
     "herdr",
     "herdr-app",

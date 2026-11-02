@@ -1,6 +1,6 @@
 # Workspaces
 
-A Herdr app layout for people who work across several companies or clients. The sidebar lists only the spaces of the workspace you chose (Default, the spaces in no workspace, until you pick one), and its agents list follows the same filter. A "Workspace" selector in the footer, above Settings, opens a menu to pick, create, edit and delete workspaces, each with a name, an icon and a color. A space's right-click menu has "Move to workspace…". Spaces on other herdr-core machines are grouped under a header per machine, and the local machine reads "default".
+A Herdr app layout for people who work across several workspaces. The sidebar lists only the spaces of the workspace you chose (Default, the spaces in no workspace, until you pick one), and its agents list follows the same filter. A "Workspace" selector in the footer, above Settings, opens a menu to pick, create, edit and delete workspaces, each with a name, an icon and a color. A space's right-click menu has "Move to workspace…". Spaces on other herdr-core machines are grouped under a header per machine, and the local machine reads "default".
 
 ![Workspaces](preview.png)
 
@@ -62,7 +62,7 @@ Programs it runs: `git` through `exec` (`git --no-optional-locks -c core.fsmonit
 - Default is not stored: it is the spaces assigned to no workspace (or to a deleted one).
 - A space joins the active workspace (an `assign` entry is written) only when it appeared more than 5 seconds after the view started (Herdr gives a mod no "restore finished" signal, and a relaunch lists its restored spaces within 0.62-0.66 s (7 relaunches, the attached machine a local core, not ssh), so spaces seen in the first 5 s are the starting set and are never taken, a window with none included), is this window's active space (what `space.new` makes here), is in no workspace (an assignment to a deleted workspace counts as none), and a workspace is active; each new space is decided once, when first seen, and not before the store file has been read once. A machine's spaces arriving on reconnect stay as they are, with one exception: a restored space that arrives more than 5 seconds after the view started (a slow ssh machine on relaunch; not measured) and is this window's active space, in no workspace, with a workspace active, is taken and leaves Default for good. Another window's spaces and spaces made while Default is active stay as they are, and a space made in the first 5 seconds is not taken; a failed write shows an error toast "Could not add the space to the workspace".
 - A workspace can hold local spaces and spaces on other machines; the id of a remote space is machine-prefixed.
-- Each company or client core attaches as a machine with `hc machine add --via 'sh -c' --name <name> --session <session>`; the mod does not do that for you.
+- Each workspace core attaches as a machine with `hc machine add --via 'sh -c' --name <name> --session <session>`; the mod does not do that for you.
 - The "Workspace" popup height is capped at 480px, so a very long list scrolls.
 - Moving a space does not move its terminals: the filter only hides spaces and their agents.
 - Icon names are limited to the ten listed; an unknown stored icon draws as `layers`.

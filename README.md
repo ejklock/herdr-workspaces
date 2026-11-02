@@ -1,6 +1,6 @@
 # herdr-workspaces: a workspace switcher layout for the Herdr app
 
-A Herdr app layout and mod (`workspaces`) that groups your spaces into workspaces, for example one per company or client, so one Herdr window stays tidy when you run many AI coding agents across several herdr-core machines. The sidebar lists only the chosen workspace's spaces (Default, the spaces in no workspace, by default), with a "Workspace" selector in the footer, set apart from Settings, to pick, create, edit and delete workspaces (name, icon, color), and a "Move to workspace…" item in each space's right-click menu. The local machine reads "default" instead of "This computer". Everything is served by one mod folder, `mods/workspaces/`.
+A Herdr app layout and mod (`workspaces`) that groups your spaces into workspaces, so one Herdr window stays tidy when you run many AI coding agents across several herdr-core machines. The sidebar lists only the chosen workspace's spaces (Default, the spaces in no workspace, by default), with a "Workspace" selector in the footer, set apart from Settings, to pick, create, edit and delete workspaces (name, icon, color), and a "Move to workspace…" item in each space's right-click menu. The local machine reads "default" instead of "This computer". Everything is served by one mod folder, `mods/workspaces/`.
 
 ![The workspaces layout: the Acme workspace active, its two spaces under the acme machine, and the Workspace selector in the footer](preview.png)
 
@@ -10,7 +10,7 @@ A Herdr app layout and mod (`workspaces`) that groups your spaces into workspace
 - The spaces list and the agents list both show only the active workspace; Default shows the spaces in no workspace.
 - "Move to workspace…" in a space's right-click menu.
 - A space you create in a window while a workspace is active joins that workspace, so it stays in the list (with Default active it stays in Default). Spaces that arrive otherwise, such as a machine reconnecting, are not moved.
-- Spaces on other herdr-core machines are grouped under a header per machine, so each company can keep its own core (`hc machine add --via 'sh -c' --name <name> --session <session>`).
+- Spaces on other herdr-core machines are grouped under a header per machine, so each workspace can keep its own core (`hc machine add --via 'sh -c' --name <name> --session <session>`).
 - Agent status (working, blocked, done, idle), sub-agents, git branch and ahead/behind next to each space, a status bar with machine, branch and agent counts.
 - The workspace store is one JSON file shared by every window of the app home.
 
