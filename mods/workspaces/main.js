@@ -7,6 +7,7 @@
 //   menu      a popup menu: a space's right-click menu, and the workspace list to move it to
 //   switcher  the popup that picks, creates and edits workspaces
 //   dialog    the create, edit and delete dialog
+//   group-dialog  the dialog that names a new group or renames one
 
 import { View, div } from "gpui-kit";
 import { props } from "herdr";
@@ -17,8 +18,9 @@ import Status from "./status.js";
 import Menu from "./menu.js";
 import Switcher from "./switcher.js";
 import Dialog from "./dialog.js";
+import GroupDialog from "./group-dialog.js";
 
-const ROLES = { spaces: Spaces, agents: Agents, chrome: Chrome, status: Status, menu: Menu, switcher: Switcher, dialog: Dialog };
+const ROLES = { spaces: Spaces, agents: Agents, chrome: Chrome, status: Status, menu: Menu, switcher: Switcher, dialog: Dialog, "group-dialog": GroupDialog };
 
 export default class Workspaces extends View {
   init(p, cx) {

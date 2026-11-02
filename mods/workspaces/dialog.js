@@ -100,7 +100,12 @@ export default class WorkspaceDialog extends View {
   }
 
   key(e, cx) {
-    if (e.key === "escape") { closeOverlay(props().overlay); cx.stop_propagation(); }
+    if (e.key === "escape") { this.cancel(); cx.stop_propagation(); }
+  }
+
+  // Herdr cancels an overlay's unfinished tasks once it closes, so a save in flight keeps it open.
+  cancel() {
+    if (!this.saving) closeOverlay(props().overlay);
   }
 
   // The Core row: "None" and one chip per core, or why there are none yet.
@@ -143,7 +148,7 @@ export default class WorkspaceDialog extends View {
       .child(div().flex_1())
       .child(h_flex().pt(16).gap(8).justify_end()
         .children(editing ? this.deleteControls(button) : [])
-        .child(button("wd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
+        .child(button("wd-cancel", "Cancel", false, () => this.cancel()))
         .child(button("wd-save", editing ? "Save" : "Create", true, (_e, cx) => this.save(cx))));
   }
 

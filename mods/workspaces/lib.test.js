@@ -22,8 +22,19 @@ import {
   dialogCores,
   canMoveSpace,
   showsCoreRow,
+  newGroupId,
+  createGroup,
+  renameGroup,
+  deleteGroup,
+  moveToGroup,
+  arrangeRows,
+  machineFoldKey,
+  foldedAway,
+  workspaceGroups,
+  spaceGroup,
+  sidebarSections,
 } from "./lib.js";
-import { menuItems } from "./menu-items.js";
+import { menuItems, menuIcon } from "./menu-items.js";
 
 // An in-memory file with the app's optimistic write: a stale snapshot is refused.
 function fakeFile(initial) {
@@ -506,9 +517,10 @@ test("menu: the space tab lists rename, move, worktree items for a repo and clos
   assert.deepEqual(items(null), [
     ["Rename", "space.rename", { id: "s1" }],
     ["Move to workspace…", "workspaces.move", { space: "s1" }],
+    ["Move to group…", "workspaces.group-move", { space: "s1" }],
     ["Close", "space.close", { id: "s1" }],
   ]);
-  assert.deepEqual(items("linked").map((i) => i[0]), ["Rename", "Move to workspace…", "New worktree", "Open worktree", "Remove worktree", "Close"]);
+  assert.deepEqual(items("linked").map((i) => i[0]), ["Rename", "Move to workspace…", "Move to group…", "New worktree", "Open worktree", "Remove worktree", "Close"]);
 });
 
 test("menu: the workspace-move tab checks the space's current workspace", () => {
@@ -672,4 +684,328 @@ test("core row: shown for an active workspace with no machine only", () => {
 test("core row: the listed spaces stay the moved-in ones of other machines", () => {
   assert.equal(showsCoreRow(core, "loose"), true);
   assert.deepEqual(idsOf(visibleSpaces(core, "loose", everySpace)), ["abby-stg/4"]);
+});
+
+const groupedStore = (groups, grouped = {}, workspaces = core.workspaces) => ({ ...storeOf(workspaces, core.assign), groups, grouped });
+const grp = (id, name, workspaceId) => ({ id, name, ...(workspaceId ? { workspace: workspaceId } : {}) });
+const parseGroups = (data) => parseStore(JSON.stringify({ version: 1, workspaces: core.workspaces, assign: {}, ...data })).store;
+
+test("groups parsing: a file with no groups or grouped keys has none and adds no keys", () => {
+  const store = parseStore(serializeStore(storeOf([workspace("w1", "Acme")]))).store;
+  assert.deepEqual(workspaceGroups(store, undefined), []);
+  assert.equal("groups" in store, false);
+  assert.equal("grouped" in store, false);
+});
+
+test("groups parsing: a group of a workspace the store lacks is dropped with its members", () => {
+  const store = parseGroups({ groups: [grp("g1", "Keep", "base"), grp("g2", "Lost", "gone"), grp("g3", "Default one")], grouped: { a: "g1", b: "g2", c: "g3" } });
+  assert.deepEqual(store.groups, [grp("g1", "Keep", "base"), grp("g3", "Default one")]);
+  assert.deepEqual(store.grouped, { a: "g1", c: "g3" });
+});
+
+test("groups parsing: a group whose workspace is not a text is dropped", () => {
+  assert.equal(parseGroups({ groups: [{ id: "g1", name: "X", workspace: 5 }, { id: "g2", name: "Y", workspace: "" }] }).groups, undefined);
+});
+
+test("groups parsing: a duplicate group id keeps the first", () => {
+  const store = parseGroups({ groups: [grp("g1", "First", "base"), grp("g1", "Second", "argon")], grouped: { a: "g1" } });
+  assert.deepEqual(store.groups, [grp("g1", "First", "base")]);
+  assert.deepEqual(store.grouped, { a: "g1" });
+});
+
+test("groups parsing: a member whose group is gone is dropped and the others stay", () => {
+  const store = parseGroups({ groups: [grp("g1", "One", "base")], grouped: { a: "g1", b: "gone", c: 7 } });
+  assert.deepEqual(store.grouped, { a: "g1" });
+});
+
+test("groups parsing: a group with a missing or non-text name or id is dropped", () => {
+  const store = parseGroups({ groups: [{ id: "g1", name: 4 }, { id: "g2" }, { name: "No id" }, grp("g3", "Fine", "base")] });
+  assert.deepEqual(store.groups, [grp("g3", "Fine", "base")]);
+});
+
+test("groups parsing: an array where an object is expected, and the reverse, is ignored", () => {
+  assert.equal(parseGroups({ groups: { g1: "x" }, grouped: ["g1"] }).groups, undefined);
+  const store = parseGroups({ groups: [grp("g1", "One", "base")], grouped: ["g1"] });
+  assert.equal(store.grouped, undefined);
+  assert.deepEqual(store.groups, [grp("g1", "One", "base")]);
+  assert.equal(parseGroups({ groups: [["g1"], "g2", null] }).groups, undefined);
+});
+
+test("groups parsing: a store with groups, their order and members round-trips and stays version 1", () => {
+  const text = serializeStore(groupedStore([grp("g2", "Second", "base"), grp("g1", "First"), grp("g3", "Third", "base")], { a: "g1", b: "g2", c: "g2" }));
+  const { store, error } = parseStore(text);
+  assert.equal(error, undefined);
+  assert.equal(store.version, 1);
+  assert.deepEqual(store.groups.map((g) => g.id), ["g2", "g1", "g3"]);
+  assert.equal(serializeStore(store), text);
+});
+
+test("group create: adds to the end of the active workspace's groups, or to Default with no workspace", () => {
+  const first = createGroup(groupedStore([grp("g1", "One", "base")]), "base", "  Two ", "g2");
+  assert.deepEqual(first.store.groups, [grp("g1", "One", "base"), grp("g2", "Two", "base")]);
+  const def = createGroup(storeOf([]), undefined, "Loose", "g1");
+  assert.deepEqual(def.store.groups, [grp("g1", "Loose")]);
+});
+
+test("group create: an empty name or one equal ignoring case in the same workspace is refused", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta")]);
+  for (const name of ["", "   "]) assert.match(createGroup(store, "base", name, "g9").error, /name/i);
+  assert.match(createGroup(store, "base", " ALPHA ", "g9").error, /already/);
+  assert.match(createGroup(store, undefined, "beta", "g9").error, /already/);
+});
+
+test("group create: the same name in another workspace or in Default is allowed", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base")]);
+  assert.equal(createGroup(store, "argon", "Alpha", "g2").error, undefined);
+  assert.equal(createGroup(store, undefined, "Alpha", "g2").error, undefined);
+});
+
+test("group create: a workspace the store lacks is refused", () => {
+  assert.match(createGroup(groupedStore([]), "gone", "Alpha", "g1").error, /workspace/i);
+});
+
+test("group id: a name becomes a dashed slug, numbered when taken", () => {
+  const store = groupedStore([grp("api", "API", "base"), grp("api-2", "API 2", "base")]);
+  assert.equal(newGroupId(store, " Web App "), "web-app");
+  assert.equal(newGroupId(store, "API"), "api-3");
+  assert.equal(newGroupId(store, "!!!"), "group");
+});
+
+test("group rename: trims, follows the same refusals and lets a group keep its own name", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "base"), grp("g3", "Alpha", "argon")], { a: "g1" });
+  assert.deepEqual(renameGroup(store, "g1", " New ").store.groups[0], grp("g1", "New", "base"));
+  assert.deepEqual(renameGroup(store, "g1", "ALPHA").store.groups[0], grp("g1", "ALPHA", "base"));
+  assert.match(renameGroup(store, "g1", "beta").error, /already/);
+  assert.match(renameGroup(store, "g1", " ").error, /name/i);
+  assert.equal(renameGroup(store, "g3", "Beta").error, undefined);
+  assert.deepEqual(renameGroup(store, "g1", "New").store.grouped, { a: "g1" });
+  assert.match(renameGroup(store, "gone", "New").error, /no longer/);
+});
+
+test("group delete: removes the group and its members, and the spaces list in no group", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "base")], { "base-digital/1": "g1", "base-digital/2": "g2", "abby-stg/1": "g1" });
+  const { store: after } = deleteGroup(store, "g1");
+  assert.deepEqual(after.groups, [grp("g2", "Beta", "base")]);
+  assert.deepEqual(after.grouped, { "base-digital/2": "g2" });
+  const rows = visibleSpaces(after, "base", everySpace).map((s) => ({ w: s, tree: null }));
+  assert.equal(sidebarSections(after, "base", rows)[0].rows.length, 3);
+  assert.equal(spaceGroup(after, "base", "base-digital/1"), undefined);
+});
+
+test("group delete: the last group leaves no groups or grouped keys", () => {
+  const { store } = deleteGroup(groupedStore([grp("g1", "Alpha", "base")], { a: "g1" }), "g1");
+  assert.equal("groups" in store, false);
+  assert.equal("grouped" in store, false);
+});
+
+test("workspace delete: removes its groups and their members and keeps the others'", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "argon"), grp("g3", "Loose")], { a: "g1", b: "g2", c: "g3" });
+  const after = deleteWorkspace(store, "base");
+  assert.deepEqual(after.groups, [grp("g2", "Beta", "argon"), grp("g3", "Loose")]);
+  assert.deepEqual(after.grouped, { b: "g2", c: "g3" });
+});
+
+const baseGroups = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "argon"), grp("g3", "Loose")]);
+
+test("move to group: sets the member entry and No group removes it", () => {
+  const moved = moveToGroup(baseGroups, "base", everySpace, "abby-stg/1", "g1");
+  assert.deepEqual(moved.store.grouped, { "abby-stg/1": "g1" });
+  const again = moveToGroup(moved.store, "base", everySpace, "abby-stg/1", undefined);
+  assert.equal("grouped" in again.store, false);
+  assert.deepEqual(again.store.groups, baseGroups.groups);
+});
+
+test("move to group: Default's group takes a local space", () => {
+  assert.deepEqual(moveToGroup(baseGroups, undefined, everySpace, "local1", "g3").store.grouped, { local1: "g3" });
+});
+
+test("move to group: a group of another workspace than the one listing the space is refused and nothing changes", () => {
+  for (const [active, spaceId, groupId] of [["base", "abby-stg/1", "g2"], ["base", "abby-stg/1", "g3"], [undefined, "local1", "g1"], ["base", "local1", "g1"], ["base", "abby-stg/1", "gone"]]) {
+    const result = moveToGroup(baseGroups, active, everySpace, spaceId, groupId);
+    assert.ok(result.error, `${active} ${spaceId} ${groupId}`);
+    assert.equal(result.store, undefined);
+  }
+});
+
+test("space group: an entry whose group belongs to another workspace is ignored and kept", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "argon")], { "abby-stg/1": "g2", "base-digital/1": "g1" });
+  assert.equal(spaceGroup(store, "base", "abby-stg/1"), undefined);
+  assert.equal(spaceGroup(store, "base", "base-digital/1"), "g1");
+  assert.equal(spaceGroup(store, undefined, "base-digital/1"), undefined);
+  assert.deepEqual(store.grouped, { "abby-stg/1": "g2", "base-digital/1": "g1" });
+});
+
+test("space group: a rebound space shows in no group, and the entry returns when it comes back", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base")], { "abby-stg/3": "g1" });
+  const rows = [{ w: space("abby-stg/3", "abby-stg"), tree: null }];
+  assert.equal(sidebarSections(store, "argon", rows)[0].rows.length, 1);
+  assert.equal(sidebarSections(store, "base", rows)[1].rows.length, 1);
+});
+
+const rowsOf = (ids) => ids.map((id) => ({ w: space(id), tree: null }));
+const sectionIds = (sections) => sections.map((s) => [s.group?.id, s.rows.map((r) => r.w.id)]);
+
+test("sidebar sections: no groups gives one section holding every row in order", () => {
+  assert.deepEqual(sectionIds(sidebarSections(storeOf([]), undefined, rowsOf(["a", "b", "c"]))), [[undefined, ["a", "b", "c"]]]);
+});
+
+test("sidebar sections: rows in no group come first, then each group in order with its rows in Herdr's order", () => {
+  const store = groupedStore([grp("g2", "Two"), grp("g1", "One")], { a: "g1", b: "g2", c: "g1", e: "g2" });
+  assert.deepEqual(sectionIds(sidebarSections(store, undefined, rowsOf(["a", "b", "c", "d", "e"]))), [
+    [undefined, ["d"]],
+    ["g2", ["b", "e"]],
+    ["g1", ["a", "c"]],
+  ]);
+});
+
+test("sidebar sections: an empty group still has its section", () => {
+  const store = groupedStore([grp("g1", "One")]);
+  assert.deepEqual(sectionIds(sidebarSections(store, undefined, rowsOf(["a"]))), [[undefined, ["a"]], ["g1", []]]);
+});
+
+test("sidebar sections: a group of one workspace never appears in another or in Default", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base")], { a: "g1" });
+  for (const active of ["argon", undefined, "deleted"]) assert.deepEqual(sectionIds(sidebarSections(store, active, rowsOf(["a"]))), [[undefined, ["a"]]]);
+  assert.deepEqual(sectionIds(sidebarSections(store, "base", rowsOf(["a"]))), [[undefined, []], ["g1", ["a"]]]);
+});
+
+test("sidebar sections: a worktree row stays in the section of the main checkout above it", () => {
+  const store = groupedStore([grp("g1", "One")], { main: "g1" });
+  const rows = [
+    { w: space("a"), tree: null },
+    { w: space("main"), tree: null },
+    { w: space("wt"), tree: "├─" },
+    { w: space("wt2"), tree: "└─" },
+    { w: space("b"), tree: null },
+  ];
+  assert.deepEqual(sectionIds(sidebarSections(store, undefined, rows)), [[undefined, ["a", "b"]], ["g1", ["main", "wt", "wt2"]]]);
+  const own = groupedStore([grp("g1", "One")], { wt2: "g1" });
+  assert.deepEqual(sectionIds(sidebarSections(own, undefined, rows)), [[undefined, ["a", "main", "wt", "wt2", "b"]], ["g1", []]]);
+});
+
+test("sidebar sections: another machine's rows sit in a section like any other row", () => {
+  const store = groupedStore([grp("g1", "One", "base")], { "abby-stg/1": "g1", "base-digital/1": "g1" });
+  const rows = visibleSpaces(store, "base", everySpace).map((s) => ({ w: s, tree: null }));
+  assert.deepEqual(sectionIds(sidebarSections(store, "base", rows)), [[undefined, ["base-digital/2", "abby-stg/2"]], ["g1", ["base-digital/1", "abby-stg/1"]]]);
+});
+
+test("workspace groups: only the active workspace's, or Default's, in order", () => {
+  const store = groupedStore([grp("g1", "A", "base"), grp("g2", "B"), grp("g3", "C", "base")]);
+  assert.deepEqual(workspaceGroups(store, "base").map((g) => g.id), ["g1", "g3"]);
+  assert.deepEqual(workspaceGroups(store, undefined).map((g) => g.id), ["g2"]);
+  assert.deepEqual(workspaceGroups(store, "deleted").map((g) => g.id), ["g2"]);
+});
+
+test("menu: a space's menu offers Move to group… after rename", () => {
+  const items = menuItems(menuProps("space"), null, core, "base", [], []).map((i) => i.slice(0, 3));
+  assert.deepEqual(items, [["Rename", "space.rename", { id: "s1" }], ["Move to group…", "workspaces.group-move", { space: "s1" }], ["Close", "space.close", { id: "s1" }]]);
+});
+
+test("menu: the group-move tab lists the listing workspace's groups, checks the current, then No group and New group…", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "base"), grp("g3", "Loose")], { s1: "g2" });
+  const items = menuItems(menuProps("group-move"), null, store, "base", []);
+  assert.deepEqual(items.map((i) => [...i.slice(0, 4)]), [
+    ["Alpha", "workspaces.group", { space: "s1", group: "g1" }, false],
+    ["Beta", "workspaces.group", { space: "s1", group: "g2" }, true],
+    ["No group", "workspaces.group", { space: "s1" }, false],
+    ["New group…", "workspaces.group-new", { space: "s1" }, false],
+  ]);
+  const none = menuItems(menuProps("group-move"), null, store, undefined, []);
+  assert.deepEqual(none.map((i) => [i[0], i[3]]), [["Loose", false], ["No group", true], ["New group…", false]]);
+});
+
+test("menu: the group-move tab ignores a member entry of another workspace's group", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "argon")], { s1: "g2" });
+  assert.deepEqual(menuItems(menuProps("group-move"), null, store, "base", []).map((i) => [i[0], i[3]]), [["Alpha", false], ["No group", true], ["New group…", false]]);
+});
+
+test("menu: a group header's menu has Rename and Delete naming the group", () => {
+  const p = { tab: "group", target: { id: "g1" } };
+  assert.deepEqual(menuItems(p, null, core, "base", []).map((i) => i.slice(0, 3)), [["Rename", "workspaces.group-rename", { group: "g1" }], ["Delete", "workspaces.group-delete", { group: "g1" }]]);
+});
+
+test("menu icon: every group command shows its own icon, never the close one", () => {
+  const dir = "mods/workspace-chrome/";
+  for (const [command, icon] of [["workspaces.group", "layers"], ["workspaces.group-move", "layers"], ["workspaces.group-new", "plus"], ["workspaces.group-rename", "square-pen"], ["workspaces.group-delete", "x"]]) {
+    assert.equal(menuIcon(command), `${dir}${icon}.svg`, command);
+  }
+});
+
+test("menu icon: close is x, space.rename is square-pen and an unknown command is terminal", () => {
+  assert.equal(menuIcon("space.close"), "mods/workspace-chrome/x.svg");
+  assert.equal(menuIcon("tab.close"), "mods/workspace-chrome/x.svg");
+  assert.equal(menuIcon("space.rename"), "mods/workspace-chrome/square-pen.svg");
+  assert.equal(menuIcon("something.else"), "mods/workspace-chrome/terminal.svg");
+});
+
+const gitOf = (repo, linked) => ({ repo, linked });
+const entry = (id, g) => ({ w: space(id), i: 0, g });
+const listed = [entry("a", null), entry("main", gitOf("r", false)), entry("wt", gitOf("r", true)), entry("wt2", gitOf("r", true)), entry("b", null)];
+
+test("worktree rows: nested under the main checkout, they act on its entry", () => {
+  const rows = arrangeRows(listed);
+  assert.deepEqual(rows.map((r) => [r.w.id, r.tree, r.groupSpace]), [["a", null, "a"], ["main", null, "main"], ["wt", "├─", "main"], ["wt2", "└─", "main"], ["b", null, "b"]]);
+});
+
+test("worktree rows: a worktree whose main checkout is not listed is its own row and acts on its own entry", () => {
+  const rows = arrangeRows([entry("wt", gitOf("r", true)), entry("c", null)]);
+  assert.deepEqual(rows.map((r) => [r.w.id, r.tree, r.groupSpace]), [["wt", null, "wt"], ["c", null, "c"]]);
+});
+
+test("worktree rows: Move to group… on a worktree checks the group it is drawn in", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "base")], { main: "g1" });
+  const wt = arrangeRows(listed).find((r) => r.w.id === "wt");
+  const p = { tab: "space", target: { id: wt.w.id, groupSpace: wt.groupSpace } };
+  const move = menuItems(p, null, store, "base", [], []).find((i) => i[0] === "Move to group…");
+  assert.deepEqual(move.slice(0, 3), ["Move to group…", "workspaces.group-move", { space: "main" }]);
+  const sub = menuItems({ tab: "group-move", target: { id: move[2].space } }, null, store, "base", []);
+  assert.deepEqual(sub.map((i) => [i[0], i[3]]), [["Alpha", true], ["Beta", false], ["No group", false], ["New group…", false]]);
+});
+
+test("worktree rows: moving the worktree to a group moves the main checkout and the worktree shows there", () => {
+  const live = [space("a"), space("main"), space("wt"), space("wt2"), space("b")];
+  const store = groupedStore([grp("g1", "Alpha"), grp("g2", "Beta")], { main: "g1" });
+  const moved = moveToGroup(store, undefined, live, "main", "g2").store;
+  assert.equal(moved.grouped.main, "g2");
+  assert.equal("wt" in moved.grouped, false);
+  const sections = sidebarSections(moved, undefined, arrangeRows(listed));
+  assert.deepEqual(sectionIds(sections), [[undefined, ["a", "b"]], ["g1", []], ["g2", ["main", "wt", "wt2"]]]);
+});
+
+test("worktree rows: No group on the worktree clears the main checkout's entry", () => {
+  const live = [space("main"), space("wt")];
+  const store = groupedStore([grp("g1", "Alpha", "base")], { main: "g1" });
+  const cleared = moveToGroup(store, "base", live, "main", undefined).store;
+  assert.equal("grouped" in cleared, false);
+});
+
+test("no group: an entry naming another workspace's group stays and the store is unchanged", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "argon")], { "abby-stg/1": "g2" });
+  const result = moveToGroup(store, "base", everySpace, "abby-stg/1", undefined);
+  assert.equal(result.store, store);
+  assert.deepEqual(result.store.grouped, { "abby-stg/1": "g2" });
+});
+
+test("no group: an entry naming a group of the listing workspace is removed", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base")], { "abby-stg/1": "g1" });
+  assert.equal("grouped" in moveToGroup(store, "base", everySpace, "abby-stg/1", undefined).store, false);
+});
+
+test("machine fold key: the same machine under two sections folds apart", () => {
+  assert.notEqual(machineFoldKey("g1", "abby-stg"), machineFoldKey("g2", "abby-stg"));
+  assert.notEqual(machineFoldKey(undefined, "abby-stg"), machineFoldKey("g1", "abby-stg"));
+  assert.equal(machineFoldKey("g1", "abby-stg"), machineFoldKey("g1", "abby-stg"));
+});
+
+test("folded away: a space is hidden only by its own section's fold of its machine", () => {
+  const store = groupedStore([grp("g1", "Alpha", "base"), grp("g2", "Beta", "base")], { "abby-stg/1": "g1", "abby-stg/2": "g2" });
+  const folded = new Set([machineFoldKey("g1", "abby-stg")]);
+  assert.equal(foldedAway(store, "base", folded, space("abby-stg/1", "abby-stg")), true);
+  assert.equal(foldedAway(store, "base", folded, space("abby-stg/2", "abby-stg")), false);
+  assert.equal(foldedAway(store, "base", folded, space("abby-stg/3", "abby-stg")), false);
+});
+
+test("no group: an entry naming a group of Default stays when another workspace lists the space", () => {
+  const store = groupedStore([grp("g3", "Loose")], { "abby-stg/1": "g3" });
+  assert.equal(moveToGroup(store, "base", everySpace, "abby-stg/1", undefined).store, store);
 });

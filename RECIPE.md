@@ -40,15 +40,16 @@ One mod folder, `mods/workspaces/` (`mod.json`: `place: none`, title "Workspaces
 | `spaces` | `spaces.js` | `spaces` block | `spaces` |
 | `agents` | `agents.js` | `agents` block; the sort popup (`sortMenu: true`) | `agents` |
 | `status` | `status.js` | `status` block | `workspace-status` |
-| `menu` | `menu.js` | popup, `tab` is `space`, `workspace-move`, `pane`, `tab` or global | `menu` |
+| `menu` | `menu.js` | popup, `tab` is `space`, `workspace-move`, `group-move`, `group`, `pane`, `tab` or global | `menu` |
 | `switcher` | `switcher.js` | popup from the footer selector | `menu` (popup) |
 | `dialog` | `dialog.js` | dialog overlay from the switcher and "New workspace…" | `prompt` (text field) |
+| `group-dialog` | `group-dialog.js` | dialog overlay from "New group…" and a group header's "Rename" | `prompt` (text field) |
 
 `lib.js` holds the store logic and imports nothing from `herdr`, so `node --test` runs `lib.test.js`. Icons: the mod's own SVG files (`mods/workspaces/*.svg`: check, chevron-down, plus, search, settings, sidebar, square-pen, and the ten workspace icons folder, server, monitor, terminal, git-branch, archive, clock, file-text, files, circle-check, plus layers for Default) and, for the machine headers, agent states, chevrons and menus, the shipped `mods/workspace-chrome/` SVGs. Also uses the shipped mods `tabs`, `pane`, `files`, `changes`, `picker`, `machine-add` and `worktree`, and the image `frame/welcome/herdr.png`.
 
-Store: `<app home>/workspaces/workspaces.json`, `{ "version": 1, "workspaces": [{ "id", "name", "icon", "color", "machine"? }], "assign": { "<spaceId>": "<workspaceId>" } }`. The id of a new workspace is its name as a dashed slug, numbered if taken. Writes go through `writeTextFile(path, text, expected)` and are tried up to 3 times when the file changed meanwhile. A bad file reads as an empty store.
+Store: `<app home>/workspaces/workspaces.json`, `{ "version": 1, "workspaces": [{ "id", "name", "icon", "color", "machine"? }], "assign": { "<spaceId>": "<workspaceId>" }, "groups"?: [{ "id", "name", "workspace"? }], "grouped"?: { "<spaceId>": "<groupId>" } }` (`groups` in display order, no `workspace` meaning Default; both keys absent while empty). The id of a new workspace is its name as a dashed slug, numbered if taken. Writes go through `writeTextFile(path, text, expected)` and are tried up to 3 times when the file changed meanwhile. A bad file reads as an empty store.
 
-Shared state (`shared()` / `setShared()`): `workspaces.active` (the active workspace id; absent or null is Default) and `workspaces.store` (the last store read, so the first frame has data). The mod also reads and writes `space.colors` (avatar hues), `agents.sort`, `sidebar.width` and `sidebar.collapsed`, and `localStorage` keys `machines.folded`, `changed` and `pins`.
+Shared state (`shared()` / `setShared()`): `workspaces.active` (the active workspace id; absent or null is Default) and `workspaces.store` (the last store read, so the first frame has data). The mod also reads and writes `space.colors` (avatar hues), `agents.sort`, `sidebar.width` and `sidebar.collapsed`, and `localStorage` keys `machines.folded` (one entry per machine header and section), `groups.folded`, `changed` and `pins`.
 
 `herdr` functions and commands called: `spaces`, `machines`, `panes`, `agents`, `terminals`, `focused`, `layout`, `window`, `theme`, `keys`, `props`, `appHome`, `shared`, `setShared`, `setAgentOrder`, `readTextFile`, `writeTextFile`, `watchFolder`, `openOverlay`, `closeOverlay`, `notify`, `updates`, `exec`, `hc`, `run`; commands `space.new`, `space.select`, `space.move`, `space.rename`, `space.close`, `pane.focus`, `pane.split`, `pane.zoom`, `pane.close`, `terminal.peek`, `terminal.park`, `terminal.right_click`, `tab.rename`, `tab.new`, `tab.close`, `layout.resize`, `app.settings`, `app.palette`, `app.help`, `app.theme`, `mod.open`.
 

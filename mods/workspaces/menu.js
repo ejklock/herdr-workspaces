@@ -1,13 +1,13 @@
 // Context menus (Herdr's items). Opened as a popup with
-// props { tab: "pane" | "tab" | "space" | "global", target }.
+// props { tab: "pane" | "tab" | "space" | "workspace-move" | "group-move" | "group" | "global", target }.
 // ↑/↓ move, Enter runs, Esc closes. An item is [label, command, args];
 // a command "worktree" opens the worktree dialog instead.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { run, props, closeOverlay, openOverlay, theme, keys, shared, terminals, spaces, panes, exec, notify, appHome, readTextFile, writeTextFile } from "herdr";
-import { assignSpace, newSpaceArgs, settledStore, storePaths, updateStore } from "./lib.js";
-import { menuItems } from "./menu-items.js";
+import { assignSpace, deleteGroup, moveToGroup, newSpaceArgs, settledStore, storePaths, updateStore } from "./lib.js";
+import { menuItems, menuIcon } from "./menu-items.js";
 import { followWorkspaceStore, iconPath, workspaceColor } from "./switcher.js";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
@@ -24,10 +24,46 @@ async function checkout(folder, on) {
   return common.stdout.trim() === `${top.stdout.trim()}/.git` ? "main" : "linked";
 }
 
-function menuIcon(command) {
-  const name = command.endsWith(".close") ? "x" : command.endsWith(".rename") ? "square-pen" : command.endsWith(".new") ? "plus" : command === "worktree" ? "git-branch" : command === "workspaces.move" ? "layers" : command === "app.help" ? "terminal" : command === "app.theme" ? "settings" : command === "pane.split" ? "panel-right" : command === "pane.zoom" ? "square" : "terminal";
-  return `mods/workspace-chrome/${name}.svg`;
+// The store changes a menu item makes, each awaited before the overlay closes: [builds the change from the item's args, the toast title when it fails].
+const WRITES = {
+  "workspaces.assign": [({ space, workspace }) => (store) => ({ store: assignSpace(store, space, workspace) }), "Could not move the space"],
+  "workspaces.group": [
+    ({ space, group }) => {
+      const active = shared("workspaces.active");
+      const live = spaces();
+      return (store) => moveToGroup(store, active, live, space, group);
+    },
+    "Could not move the space",
+  ],
+  "workspaces.group-delete": [({ group }) => (store) => deleteGroup(store, group), "Could not delete the group"],
+};
+
+const popup = (tab, space) => ({ mod: "workspaces", kind: "popup", width: 220, height: 300, props: { role: "menu", tab, target: { id: space } } });
+const groupDialog = (given) => ({ mod: "workspaces", kind: "dialog", width: 380, height: 190, props: { role: "group-dialog", ...given } });
+
+// The overlay a menu item opens instead of running a command, or undefined.
+function overlayFor([, command, args], store) {
+  switch (command) {
+    case "workspaces.move":
+      return popup("workspace-move", args.space);
+    case "workspaces.group-move":
+      return popup("group-move", args.space);
+    case "workspaces.group-new":
+      return groupDialog({ space: args.space });
+    case "workspaces.group-rename":
+      return groupDialog({ group: args.group, name: store.groups?.find((g) => g.id === args.group)?.name });
+    case "worktree":
+      return { mod: "worktree", kind: "dialog", ...(args.action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: args };
+    default:
+      return undefined;
+  }
 }
+
+// A separator goes above the item where the group of items changes.
+const separated = (list, i) => {
+  const [, command, args] = list[i];
+  return i > 0 && (command.endsWith(".close") || (command === "workspaces.assign" && !args.workspace) || (command === "workspaces.group" && !args.group) || command === "app.help" || (command === "app.theme" && list[i - 1][1] !== "app.theme"));
+};
 
 // The key bound to a command, for the hint on the right.
 function shortcut(name, args) {
@@ -54,15 +90,15 @@ export default class Menu extends View {
       });
   }
 
-  // Puts a space under a workspace (or none); a failed write is shown as a toast. The menu stays open until this settles, because Herdr cancels an overlay's unfinished tasks once it closes.
-  async assign({ space, workspace }) {
+  // Applies a change to the store file; a failed write is shown as a toast. The menu stays open until this settles, because Herdr cancels an overlay's unfinished tasks once it closes.
+  async write(change, title) {
     let result;
     try {
-      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(appHome()).file, (store) => ({ store: assignSpace(store, space, workspace) }));
+      result = await updateStore({ read: readTextFile, write: writeTextFile }, storePaths(appHome()).file, change);
     } catch (e) {
       result = { error: e.message ?? String(e) };
     }
-    if (result.error) notify({ title: "Could not move the space", body: result.error, level: "error" });
+    if (result.error) notify({ title, body: result.error, level: "error" });
   }
 
   // Makes a space on the active workspace's core. With no store read yet it waits for the file first, and the overlay closes only after that, because Herdr cancels an overlay's unfinished tasks once it closes.
@@ -85,13 +121,14 @@ export default class Menu extends View {
       void this.newSpace(overlay);
       return;
     }
-    if (it[1] === "workspaces.assign") {
-      void this.assign(it[2]).finally(() => closeOverlay(overlay));
+    const write = WRITES[it[1]];
+    if (write) {
+      void this.write(write[0](it[2]), write[1]).finally(() => closeOverlay(overlay));
       return;
     }
     closeOverlay(overlay);
-    if (it[1] === "workspaces.move") openOverlay({ mod: "workspaces", kind: "popup", width: 220, height: 300, props: { role: "menu", tab: "workspace-move", target: { id: it[2].space } } });
-    else if (it[1] === "worktree") openOverlay({ mod: "worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    const next = overlayFor(it, this.store);
+    if (next) openOverlay(next);
     else run(it[1], it[2]);
   }
 
@@ -123,7 +160,7 @@ export default class Menu extends View {
       .track_focus(this.handle)
       .w_full()
       .min_h(0)
-      .when(props()?.tab === "workspace-move", (el) => el.overflow_y_scroll())
+      .when(props()?.tab === "workspace-move" || props()?.tab === "group-move", (el) => el.overflow_y_scroll())
       .p(5)
       .bg(t.popover)
       .text_size(12.8)
@@ -134,7 +171,7 @@ export default class Menu extends View {
   // One item: a separator above where the group changes, then the icon, label and shortcut or check.
   entry(t, list, it, i) {
     return v_flex()
-            .when(i > 0 && (it[1].endsWith(".close") || (it[1] === "workspaces.assign" && !it[2].workspace) || it[1] === "app.help" || (it[1] === "app.theme" && list[i - 1][1] !== "app.theme")), el => el.child(div().mx(7).my(4).h(1).bg(t.border)))
+            .when(separated(list, i), el => el.child(div().mx(7).my(4).h(1).bg(t.border)))
             .child(h_flex()
             .id(`mi-${i}`)
             .h(31)
