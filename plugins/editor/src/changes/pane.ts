@@ -1,10 +1,12 @@
 // Side-by-side diff of one file, HEAD against the working tree; the Changes list picks the file.
 import { View, div } from "gpui-kit";
 import type { Context, AsyncContext, Element } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { props, shared, focused, exec, readTextFile, watchFolder, theme, settings } from "herdr";
-import { targetToShow, differsFrom, displayRows, loadView, type DiffTarget, type DisplayRow, type View as DiffView } from "./rows.ts";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
+import { props, shared, focused, panes, run, exec, readTextFile, watchFolder, theme, settings } from "herdr";
+import { targetToShow, differsFrom, reloadsOnTick, displayRows, loadView, type DiffTarget, type DisplayRow, type View as DiffView } from "./rows.ts";
+import { stops, step, stepsOf, clampCursor, editorTarget, type EditorClaims } from "./nav.ts";
 import type { Row, Cell } from "./diff.ts";
+import { rowSpans, type Span } from "./words.ts";
 
 type Hex = `#${string}`;
 type Colors = Record<string, string>;
@@ -23,9 +25,16 @@ export default class Diff extends View {
   private message: string | undefined = "No file selected";
   private watched: string | undefined;
   private generation = 0;
+  private loading = false;
+  private scroller: VirtualListScrollHandle | undefined;
+  private cursor: number | undefined;
+  private deleted = false;
+  private notice: string | undefined;
 
   override init(_props: unknown, cx: AsyncContext): void {
+    this.scroller = VirtualListScrollHandle.new();
     this.follow(cx);
+    cx.timer.every(10000, cx => { if (reloadsOnTick(this.target, this.loading)) this.reload(cx); });
   }
 
   private current(): DiffTarget | undefined { return targetToShow(shared(TARGETS_KEY), props(), focused()?.space); }
@@ -36,6 +45,9 @@ export default class Diff extends View {
     if (!next || !differsFrom(next, this.target)) return;
     this.target = next;
     this.expanded = new Set();
+    this.cursor = undefined;
+    this.notice = undefined;
+    this.deleted = false;
     this.watch(next, cx);
     this.reload(cx);
   }
@@ -44,17 +56,74 @@ export default class Diff extends View {
     const target = this.target;
     if (!target) return;
     const generation = ++this.generation;
+    this.loading = true;
     cx.spawn(async cx => {
-      const view = await loadView({ exec, readTextFile }, target);
-      if (generation === this.generation) { this.apply(view); cx.notify(); }
+      try {
+        const view = await loadView({ exec, readTextFile }, target);
+        if (generation === this.generation) { this.apply(view); cx.notify(); }
+      } finally {
+        if (generation === this.generation) this.loading = false;
+      }
     });
   }
 
   private apply(view: DiffView): void {
-    if (view.kind === "message") { this.rows = []; this.shown = []; this.message = view.text; return; }
+    this.deleted = view.deleted === true;
+    if (view.kind === "message") { this.rows = []; this.shown = []; this.message = view.text; this.cursor = undefined; return; }
     this.rows = view.rows;
     this.message = view.rows.length === 0 ? "Empty file" : undefined;
     this.fold();
+    this.cursor = clampCursor(this.cursor, stops(this.shown).length);
+  }
+
+  private move(direction: "previous" | "next", cx: Context): void {
+    const starts = stops(this.shown);
+    const cursor = step(this.cursor, starts.length, direction);
+    const stop = cursor === undefined ? undefined : starts[cursor];
+    if (cursor === undefined || stop === undefined) return;
+    this.cursor = cursor;
+    this.scroller?.scroll_to_item(stop, "center");
+    cx.notify();
+  }
+
+  private openInEditor(cx: Context): void {
+    const target = this.target;
+    const f = focused();
+    if (!target || !f) return;
+    const path = `${target.root}/${target.path}`;
+    const claims = (shared("editor.claims") ?? {}) as EditorClaims;
+    const where = editorTarget({ panes: panes(), claims, focused: { tab: f.tab, pane: f.pane }, path, on: target.on });
+    if (!where) return;
+    const open = { path, on: target.on };
+    try {
+      if (where.kind === "focus") run("pane.focus", { pane: where.pane });
+      else if (where.kind === "split") run("pane.split", { direction: "right", pane: where.pane, mod: "editor", props: open });
+      else run("tab.new", { mod: "editor", props: open });
+      this.notice = undefined;
+    } catch (e) { this.notice = String(e); }
+    cx.notify();
+  }
+
+  private button(id: string, label: string, enabled: boolean, t: Colors, click: (cx: Context) => void): Element {
+    return div().id(id).h(24).px(10).flex_none().flex().items_center().rounded(6).bg(hex(t, "raised"))
+      .text_color(enabled ? hex(t, "foreground") : hex(t, "dim"))
+      .when(enabled, el => el.cursor_pointer().hover(s => s.bg(hex(t, "hover"))).on_click((_e, cx) => click(cx)))
+      .child(label);
+  }
+
+  private header(t: Colors): Element {
+    const starts = stops(this.shown);
+    const can = stepsOf(this.cursor, starts.length);
+    const position = this.cursor === undefined ? `${starts.length} ${starts.length === 1 ? "change" : "changes"}` : `${this.cursor + 1}/${starts.length}`;
+    const bar = h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(hex(t, "border"))
+      .child(div().flex_1().min_w(0).truncate().child(this.target?.path ?? "Diff"));
+    if (this.message === undefined) {
+      bar.child(div().flex_none().text_color(hex(t, "dim")).child(position))
+        .child(this.button("diff-previous", "Previous", can.previous, t, cx => this.move("previous", cx)))
+        .child(this.button("diff-next", "Next", can.next, t, cx => this.move("next", cx)));
+    }
+    if (this.target && !this.deleted) bar.child(this.button("diff-open", "Open in editor", true, t, cx => this.openInEditor(cx)));
+    return bar;
   }
 
   private fold(): void { this.shown = displayRows(this.rows, CONTEXT, this.expanded); }
@@ -81,12 +150,20 @@ export default class Diff extends View {
     cx.notify();
   }
 
-  private cell(cell: Cell | undefined, tint: Hex | undefined, t: Colors): Element[] {
+  private cell(cell: Cell | undefined, tint: Hex | undefined, t: Colors, spans?: Span[]): Element[] {
     const shade = (el: Element): Element => (cell && tint ? el.bg(`${tint}18` as Hex) : el);
+    const text = spans && tint
+      ? h_flex().flex_1().min_w(0).px(6).overflow_hidden().children(spans.map((s) => this.span(s, tint)))
+      : div().flex_1().min_w(0).px(6).truncate().child(cell?.text ?? "");
     return [
       shade(div().w(48).flex_none().px(6).text_right().text_color(hex(t, "dim")).child(cell ? String(cell.line) : "")),
-      shade(div().flex_1().min_w(0).px(6).truncate().child(cell?.text ?? "")),
+      shade(text),
     ];
+  }
+
+  private span(span: Span, tint: Hex): Element {
+    const el = div().flex_none().whitespace_nowrap().child(span.text);
+    return span.changed ? el.bg(`${tint}40` as Hex) : el;
   }
 
   private line(row: DisplayRow, t: Colors): Element {
@@ -94,8 +171,9 @@ export default class Diff extends View {
       return div().w_full().h(ROW_HEIGHT).flex_none().px(12).bg(hex(t, "raised")).text_color(hex(t, "dim")).cursor_pointer().child(row.label);
     }
     const changed = row.kind === "change";
-    const [leftNo, leftText] = this.cell(row.left, changed ? hex(t, "ansi1") : undefined, t) as [Element, Element];
-    const [rightNo, rightText] = this.cell(row.right, changed ? hex(t, "ansi2") : undefined, t) as [Element, Element];
+    const words = rowSpans(row);
+    const [leftNo, leftText] = this.cell(row.left, changed ? hex(t, "ansi1") : undefined, t, words?.left) as [Element, Element];
+    const [rightNo, rightText] = this.cell(row.right, changed ? hex(t, "ansi2") : undefined, t, words?.right) as [Element, Element];
     return h_flex().w_full().h(ROW_HEIGHT).flex_none().child(leftNo).child(leftText).child(rightNo).child(rightText);
   }
 
@@ -112,11 +190,12 @@ export default class Diff extends View {
       ? div().flex_1().min_h(0).relative()
         .child(v_virtual_list("diff-rows", this.shown.length, ROW_HEIGHT, i => this.keyOf(i),
           range => this.shown.slice(range.start, range.end).map(row => this.line(row, t)))
-          .on_item_click((key, cx) => this.expand(key, cx)).size_full())
+          .on_item_click((key, cx) => this.expand(key, cx)).track_scroll(this.scroller!).size_full())
         .child(Scrollbar.vertical("diff-rows").viewport_from_layout().absolute().inset_0())
       : div().p(12).text_color(hex(t, "dim")).child(this.message);
     return v_flex().id("diff").size_full().min_h(0).overflow_hidden().bg(hex(t, "background")).text_color(hex(t, "foreground")).text_size(12).font_family(font)
-      .child(h_flex().h(36).flex_none().px(12).items_center().border_b(1).border_color(hex(t, "border")).child(div().min_w(0).truncate().child(this.target?.path ?? "Diff")))
+      .child(this.header(t))
+      .when(this.notice !== undefined, el => el.child(div().px(12).py(6).flex_none().text_color(hex(t, "dim")).child(this.notice ?? "")))
       .child(body);
   }
 }

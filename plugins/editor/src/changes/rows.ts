@@ -7,13 +7,18 @@ export type DiffTarget = { root: string; path: string; on: string | null; seq: n
 export function asTarget(value: unknown): DiffTarget | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const { root, path, on, seq } = value as Record<string, unknown>;
-  if (typeof root !== "string" || typeof path !== "string" || typeof seq !== "number") return undefined;
+  if (typeof root !== "string" || typeof path !== "string" || typeof seq !== "number" || !Number.isFinite(seq)) return undefined;
   return { root, path, on: typeof on === "string" ? on : null, seq };
 }
 
 /** Whether a pane has to load again: the target it should show is not the one it shows. */
 export function differsFrom(next: DiffTarget, shown: DiffTarget | undefined): boolean {
   return !shown || next.root !== shown.root || next.path !== shown.path || next.on !== shown.on || next.seq !== shown.seq;
+}
+
+/** Whether a 10 s tick reloads: only a file on another machine, which no folder watch sees, and never over a load still running. */
+export function reloadsOnTick(target: DiffTarget | undefined, loading: boolean): boolean {
+  return target?.on != null && !loading;
 }
 
 /** The target a pane shows: the entry of the space named in its props, else of the focused space when the props name none; failing both, the target in its props. */
@@ -27,12 +32,12 @@ export function targetToShow(shared: unknown, props: unknown, focusedSpace?: unk
   return asTarget(props);
 }
 
-/** What the pane draws: rows, or one message in their place. */
-export type View = { kind: "rows"; rows: Row[] } | { kind: "message"; text: string };
+/** What the pane draws: rows, or one message in their place; `deleted` is set when the file no longer exists in the working tree. */
+export type View = { kind: "rows"; rows: Row[]; deleted?: true } | { kind: "message"; text: string; deleted?: true };
 
 export type DisplayRow =
   | { kind: "same"; left: Cell; right: Cell }
-  | { kind: "change"; left?: Cell; right?: Cell }
+  | { kind: "change"; block: number; left?: Cell; right?: Cell }
   | { kind: "hidden"; id: number; label: string };
 
 /** The Herdr calls the loader needs, so a test can stand in for them. */
@@ -61,7 +66,7 @@ export function displayRows(rows: readonly Row[], context: number, expanded: Rea
     if (segment.kind === "hidden") return [{ kind: "hidden", id: segment.id, label: hiddenLabel(segment.count) }];
     return segment.rows.map((row): DisplayRow => row.kind === "same"
       ? row
-      : { kind: "change", ...(row.left && { left: row.left }), ...(row.right && { right: row.right }) });
+      : { kind: "change", block: row.block, ...(row.left && { left: row.left }), ...(row.right && { right: row.right }) });
   });
 }
 
@@ -107,7 +112,8 @@ export async function loadView(deps: Loader, target: DiffTarget): Promise<View> 
     if (diff.stdout.trim() === "") return await untrackedView(deps, target);
     const parsed = parseDiff(diff.stdout);
     if (!parsed.ok) return message(parsed.reason);
-    return parsed.rows.length === 0 ? noRowsView(diff.stdout) :{ kind: "rows", rows: parsed.rows };
+    const view: View = parsed.rows.length === 0 ? noRowsView(diff.stdout) : { kind: "rows", rows: parsed.rows };
+    return /^deleted file mode /m.test(diff.stdout) ? { ...view, deleted: true } : view;
   } catch (e) {
     return message(String(e));
   }
