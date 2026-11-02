@@ -1,47 +1,96 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { diffTarget, nextSeq, nextTargets, paneProps, countLines, untrackedAdds, totals } from "../../src/list/target.ts";
+import { diffTarget, nextSeq, nextTargets, paneProps, untrackedAdds, totals } from "../../src/list/target.ts";
 
-describe("counting an untracked file's lines", () => {
-  const cases: [string, string | null, number][] = [
-    ["lines ending in a newline", "a\nb\n", 2],
-    ["lines with no final newline", "a\nb", 2],
-    ["an empty text", "", 0],
-    ["a single newline", "\n", 1],
-    ["a null read", null, 0],
-  ];
-  for (const [title, text, want] of cases) {
-    it(`counts ${title} as ${want}`, () => assert.equal(countLines(text), want));
-  }
-});
+type Call = { command: string; args: string[] | undefined; options: { cwd?: string; on?: string | null } | undefined };
+type Result = { code: number; stdout: string; stderr: string };
+const ok = (stdout: string, code = 0): Result => ({ code, stdout, stderr: "" });
+const stub = (result: Result | Error) => {
+  const calls: Call[] = [];
+  const exec = async (command: string, args?: string[], options?: { cwd?: string; on?: string | null }) => {
+    calls.push({ command, args, options });
+    if (result instanceof Error) throw result;
+    return result;
+  };
+  return { calls, exec };
+};
 
 describe("the added counts of untracked files", () => {
-  it("reads each file by its full path on the panel's machine", async () => {
-    const reads: { path: string; options: { on?: string | null } | undefined }[] = [];
-    const counts = await untrackedAdds(async (path, options) => { reads.push({ path, options }); return "a\n"; }, "/w", ["x/a.ts", "b.ts"], "box");
-    assert.deepEqual(reads, [{ path: "/w/x/a.ts", options: { on: "box" } }, { path: "/w/b.ts", options: { on: "box" } }]);
-    assert.deepEqual(counts, { "x/a.ts": 1, "b.ts": 1 });
-  });
-
-  it("counts a null read and a rejected read as 0 and still counts the others", async () => {
-    const texts: Record<string, string | null> = { "/w/a": "1\n2\n3", "/w/b": null, "/w/d": "\n" };
-    const counts = await untrackedAdds(async path => {
-      if (path === "/w/c") throw new Error("denied");
-      return texts[path] ?? null;
-    }, "/w", ["a", "b", "c", "d"], null);
-    assert.deepEqual(counts, { a: 3, b: 0, c: 0, d: 1 });
-  });
-
-  it("feeds the header total with tracked counts and untracked counts together", async () => {
-    const adds = await untrackedAdds(async () => "a\nb\nc\n", "/w", ["new.ts"], null);
-    const files = [{ path: "t.ts", add: 4, del: 1 }, { path: "new.ts", add: adds["new.ts"] ?? 0, del: 0 }];
-    assert.deepEqual(totals(files), { add: 7, del: 1 });
+  it("runs one binary-safe grep count over all the paths, after the options end", async () => {
+    const { calls, exec } = stub(ok("x/a.ts:1\n-b.ts:2\n"));
+    const counts = await untrackedAdds(exec, "/w", ["x/a.ts", "-b.ts"], "box");
+    assert.deepEqual(calls, [{ command: "env", args: ["LC_ALL=C", "grep", "-c", "-I", "-H", "-e", "", "--", "x/a.ts", "-b.ts"], options: { cwd: "/w", on: "box" } }]);
+    assert.deepEqual(counts, { "x/a.ts": 1, "-b.ts": 2 });
   });
 
   it("passes a local panel's machine as null", async () => {
-    let seen: unknown;
-    await untrackedAdds(async (_path, options) => { seen = options; return ""; }, "/w", ["a"], null);
-    assert.deepEqual(seen, { on: null });
+    const { calls, exec } = stub(ok("a:0\n"));
+    await untrackedAdds(exec, "/w", ["a"], null);
+    assert.deepEqual(calls[0]?.options, { cwd: "/w", on: null });
+  });
+
+  it("runs nothing and counts nothing for no paths", async () => {
+    const { calls, exec } = stub(ok(""));
+    assert.deepEqual(await untrackedAdds(exec, "/w", [], null), {});
+    assert.equal(calls.length, 0);
+  });
+
+  it("gives a path with a colon, a space or a newline its own count", async () => {
+    const { exec } = stub(ok("col:on.txt:1\na.txt:3\nmy file:3\nnl\nname.txt:5\n"));
+    const counts = await untrackedAdds(exec, "/w", ["col:on.txt", "a.txt", "my file", "nl\nname.txt"], null);
+    assert.deepEqual(counts, { "col:on.txt": 1, "a.txt": 3, "my file": 3, "nl\nname.txt": 5 });
+  });
+
+  it("counts a path with no record as 0 in the middle without shifting the paths after it", async () => {
+    const { exec } = stub(ok("a:4\nc:2\nd:1\n", 2));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b", "c", "d"], null), { a: 4, b: 0, c: 2, d: 1 });
+  });
+
+  it("counts a path with no record as 0 at the end", async () => {
+    const { exec } = stub(ok("a:4\nb:3\n"));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b", "c"], null), { a: 4, b: 3, c: 0 });
+  });
+
+  it("parses a binary file's 0 record and keeps the counts after it", async () => {
+    const { exec } = stub(ok("a:4\nbin.dat:0\nc:2\n"));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "bin.dat", "c"], null), { a: 4, "bin.dat": 0, c: 2 });
+  });
+
+  it("counts every path 0 when the exec rejects", async () => {
+    const { exec } = stub(new Error("unreachable"));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b"], null), { a: 0, b: 0 });
+  });
+
+  it("parses the counts of an exit 1 where no line matched", async () => {
+    const { exec } = stub(ok("a:0\nb:0\n", 1));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b"], null), { a: 0, b: 0 });
+  });
+
+  it("keeps the counts of the other files when one file is unreadable", async () => {
+    const { exec } = stub({ code: 2, stdout: "a:6\nc:1\n", stderr: "grep: b: Permission denied" });
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b", "c"], null), { a: 6, b: 0, c: 1 });
+  });
+
+  it("counts 0 for the paths that garbage output cannot place", async () => {
+    const { exec } = stub(ok("garbage with no separator\n"));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b"], null), { a: 0, b: 0 });
+  });
+
+  it("counts 0 for a count that is not digits and keeps the one before it", async () => {
+    const { exec } = stub(ok("a:2\nb:many\n"));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b"], null), { a: 2, b: 0 });
+  });
+
+  it("stops at a record it cannot place at the cursor and does not take a valid record further on", async () => {
+    const { exec } = stub(ok("junk:1\nb:2\n"));
+    assert.deepEqual(await untrackedAdds(exec, "/w", ["a", "b"], null), { a: 0, b: 0 });
+  });
+
+  it("feeds the header total with tracked counts and untracked counts together", async () => {
+    const { exec } = stub(ok("new.ts:3\n"));
+    const adds = await untrackedAdds(exec, "/w", ["new.ts"], null);
+    const files = [{ path: "t.ts", add: 4, del: 1 }, { path: "new.ts", add: adds["new.ts"] ?? 0, del: 0 }];
+    assert.deepEqual(totals(files), { add: 7, del: 1 });
   });
 });
 
