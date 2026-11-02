@@ -2,7 +2,7 @@
 type: Issue
 title: Changes panel opens a side-by-side diff in a pane
 description: A copy of the Changes panel whose file click opens one reused pane beside it with a VS Code-style side-by-side diff of HEAD against the working tree.
-status: open
+status: closed
 timestamp: 2026-11-02T15:01:34Z
 ---
 
@@ -29,3 +29,7 @@ Herdr's native Changes panel (`~/.config/herdr-app/mods/changes`) opens a file's
 - Unchanged runs fold and expand; next and previous move between changes; an edit to the file on disk refreshes the diff.
 - Removed and added lines, and the changed words inside them, read clearly in the owner's theme.
 - `bin/install` installs `my-changes` with the editor plugin and the workspaces layout shows it; `--without editor` keeps the native `changes`.
+
+### Outcome
+
+Closed by the owner on 2026-11-02 after the first slice. Delivered (c7c30de): `plugins/editor/src/changes/diff.ts` parses a whole-file git diff into side-by-side rows, folds unchanged runs into expandable hidden blocks and lists the change starts, with `tests/changes/diff.test.ts`. Not built: the my-changes panel, the diff pane, word highlights, the syntax tokenizer, install and the layout swap; the acceptance above is not met. Known gaps in the module: no test that an `@@` line inside an unfinished hunk is rejected; a short hunk followed by another header names the second header; the block-id stability test is weak. A later diff pane should run git with `-c diff.suppressBlankEmpty=false`.

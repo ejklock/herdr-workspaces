@@ -87,3 +87,11 @@ erDiagram
     WORKSPACE |o--o{ SPACE : "its core's spaces, or assigned from another machine"
     GROUP |o--o{ SPACE : "groups"
 ```
+
+## Amendment 2 — 2026-11-02: a workspace can open in a window of its own
+
+The owner chose on 2026-11-02 to open a workspace in its own Herdr window, which is phase 2 ([issue 0008](/issues/0008-open-the-active-workspace-in-a-new-herdr-window.md)).
+
+- Herdr runs one window per app home. A workspace window is therefore a second instance of the same `Herdr.app`, started with its own app home under `~/.config/herdr-app-windows/<id>`. That home shares the main home's workspace store.
+- This narrows "distinct Dock or Cmd+Tab entries per workspace" out of scope. While a workspace window is open, Herdr can show a second entry, with Herdr's own icon and name.
+- Still out of scope: a patched or copied `Herdr.app`, or an icon or name of its own per workspace.
