@@ -1,14 +1,19 @@
-// The workspace dialog: a name, an icon and a color. Opened with props { id, name, icon, color }
+// The workspace dialog: a name, an icon, a color and the core it is bound to. Opened with props { id, name, icon, color, machine }
 // to edit (with Delete, then Confirm delete) or with none to create. Enter saves, Esc cancels.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, theme, closeOverlay, setShared, shared, appHome, readTextFile, writeTextFile } from "herdr";
+import { props, theme, closeOverlay, setShared, shared, appHome, readTextFile, writeTextFile, hc } from "herdr";
 import { mkdir } from "fs/promises";
-import { storePaths, updateStore, createWorkspace, renameWorkspace, deleteWorkspace, newWorkspaceId, WORKSPACE_ICONS, WORKSPACE_COLORS } from "./lib.js";
+import { storePaths, loadStore, dialogCores, updateStore, createWorkspace, renameWorkspace, deleteWorkspace, newWorkspaceId, WORKSPACE_ICONS, WORKSPACE_COLORS } from "./lib.js";
 import { ACTIVE_KEY, iconPath, workspaceColor } from "./switcher.js";
 
 const files = { read: readTextFile, write: writeTextFile };
+
+const dialogButton = (t, id, text, primary, action, danger) => h_flex().id(id).h(32).px(14).items_center().rounded(8)
+  .border_1().border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised)
+  .text_color(primary ? t.solid_foreground : danger ? t.ansi1 : t.foreground).text_size(12.5).font_medium().cursor_pointer()
+  .hover((s) => s.opacity(0.88)).on_click(action).child(text);
 
 export default class WorkspaceDialog extends View {
   init(p, cx) {
@@ -17,6 +22,9 @@ export default class WorkspaceDialog extends View {
     this.text = given.name ?? "";
     this.icon = given.icon ?? WORKSPACE_ICONS[0];
     this.color = given.color ?? Object.keys(WORKSPACE_COLORS)[0];
+    this.machine = given.machine;
+    this.cores = undefined;
+    this.coresError = undefined;
     this.error = undefined;
     this.confirming = false;
     this.saving = false;
@@ -30,6 +38,22 @@ export default class WorkspaceDialog extends View {
     this.input.focus();
     cx.timer.after(600, () => this.input.focus());
     this.handle = cx.focus_handle();
+    this.loadCores(cx);
+  }
+
+  // Lists the cores to pick from; it only reads, never starts a core. The store is read fresh so another workspace's core is never offered.
+  loadCores(cx) {
+    cx.spawn(async (cx) => {
+      try {
+        const listed = await hc(["machine", "ls", "--json"]);
+        if (listed.code !== 0) throw new Error(listed.stderr?.trim() || `hc exited with ${listed.code}`);
+        const { store } = await loadStore(readTextFile, storePaths(appHome()).file);
+        this.cores = dialogCores(store, JSON.parse(listed.stdout).machines, this.id);
+      } catch (e) {
+        this.coresError = `Could not list the cores: ${e.message ?? e}`;
+      }
+      cx.notify();
+    });
   }
 
   // Runs `change` on the store file; closes on success, else shows why it was refused.
@@ -57,7 +81,7 @@ export default class WorkspaceDialog extends View {
   }
 
   save(cx) {
-    const fields = { name: this.text, icon: this.icon, color: this.color };
+    const fields = { name: this.text, icon: this.icon, color: this.color, machine: this.machine };
     let created;
     this.commit((store) => {
       if (this.id === undefined) {
@@ -79,13 +103,22 @@ export default class WorkspaceDialog extends View {
     if (e.key === "escape") { closeOverlay(props().overlay); cx.stop_propagation(); }
   }
 
+  // The Core row: "None" and one chip per core, or why there are none yet.
+  corePicker(t) {
+    if (this.coresError) return div().id("wd-cores-error").text_size(11.5).text_color(t.ansi1).child(this.coresError);
+    if (!this.cores) return div().id("wd-cores-loading").text_size(11.5).text_color(t.dim).child("Loading…");
+    const chip = (id, text, value) => div().id(`wd-core-${id}`).h(28).px(10).flex().items_center().rounded(7).text_size(12)
+      .border_1().border_color(this.machine === value ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { this.machine = value; this.error = undefined; cx.notify(); })
+      .child(text);
+    const cores = this.cores.map((c) => chip(c.name, c.state === "connected" ? c.name : `${c.name} (${c.state.replace(/_/g, " ")})`, c.name));
+    return h_flex().flex_wrap().gap(6).children([chip("none", "None", undefined), ...cores]);
+  }
+
   render() {
     const t = theme();
     const label = (text) => div().pt(14).pb(7).text_size(11.5).text_color(t.dim).child(text);
-    const button = (id, text, primary, action, danger) => h_flex().id(id).h(32).px(14).items_center().rounded(8)
-      .border_1().border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised)
-      .text_color(primary ? t.solid_foreground : danger ? t.ansi1 : t.foreground).text_size(12.5).font_medium().cursor_pointer()
-      .hover((s) => s.opacity(0.88)).on_click(action).child(text);
+    const button = (id, text, primary, action, danger) => dialogButton(t, id, text, primary, action, danger);
     const icon = (name) => div().id(`wd-icon-${name}`).size(32).flex_none().flex().items_center().justify_center().rounded(7)
       .border_1().border_color(this.icon === name ? t.accent : t.border).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { this.icon = name; cx.notify(); })
@@ -105,13 +138,22 @@ export default class WorkspaceDialog extends View {
       .child(h_flex().flex_wrap().gap(6).children(WORKSPACE_ICONS.map(icon)))
       .child(label("Color"))
       .child(h_flex().gap(8).children(Object.keys(WORKSPACE_COLORS).map(swatch)))
+      .child(label("Core"))
+      .child(this.corePicker(t))
       .child(div().flex_1())
       .child(h_flex().pt(16).gap(8).justify_end()
-        .when(editing, (el) => el.child(this.confirming
-          ? button("wd-confirm", "Confirm delete", false, (_e, cx) => this.remove(cx), true)
-          : button("wd-delete", "Delete", false, (_e, cx) => { this.confirming = true; cx.notify(); }, true)))
-        .when(editing, (el) => el.child(div().flex_1()))
+        .children(editing ? this.deleteControls(button) : [])
         .child(button("wd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
         .child(button("wd-save", editing ? "Save" : "Create", true, (_e, cx) => this.save(cx))));
+  }
+
+  // The Delete button (then Confirm delete) with the spacer that keeps it at the left edge, for an existing workspace.
+  deleteControls(button) {
+    return [
+      this.confirming
+        ? button("wd-confirm", "Confirm delete", false, (_e, cx) => this.remove(cx), true)
+        : button("wd-delete", "Delete", false, (_e, cx) => { this.confirming = true; cx.notify(); }, true),
+      div().flex_1(),
+    ];
   }
 }

@@ -74,7 +74,7 @@ export default class Menu extends View {
 
   items() {
     const p = props();
-    return menuItems(p, this.git, this.store, shared("workspaces.active"), p?.tab === "pane" ? terminals() : []);
+    return menuItems(p, this.git, this.store, shared("workspaces.active"), p?.tab === "pane" ? terminals() : [], spaces());
   }
 
   choose(i, cx) {

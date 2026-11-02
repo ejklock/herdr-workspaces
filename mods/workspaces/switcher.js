@@ -37,7 +37,7 @@ export function followWorkspaceStore(view, cx) {
 }
 
 export function openWorkspaceDialog(workspace) {
-  openOverlay({ mod: "workspaces", kind: "dialog", width: 420, height: 420, props: { role: "dialog", ...workspace } });
+  openOverlay({ mod: "workspaces", kind: "dialog", width: 420, height: 500, props: { role: "dialog", ...workspace } });
 }
 
 /** Popup height for the switcher: 5 px padding twice, every row and the 9 px separator, within what a window can show. */

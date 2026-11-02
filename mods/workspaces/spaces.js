@@ -6,8 +6,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, nextCommand } from "herdr";
-import { storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceArgs, settledStore, spaceListState } from "./lib.js";
-import { followWorkspaceStore } from "./switcher.js";
+import { storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceArgs, settledStore, spaceListState, showsCoreRow } from "./lib.js";
+import { followWorkspaceStore, openWorkspaceDialog } from "./switcher.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -383,6 +383,16 @@ export default class Spaces extends View {
         .child(div().id("space-new").p(4).rounded(5).hover(s => s.bg(t.hover).text_color(t.foreground)).on_click(() => void this.newSpace()).child("+")))
       .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
-        .children(this.grouped(t, collapsed)));
+        .children([...this.coreRow(t, collapsed), ...this.grouped(t, collapsed)]));
+  }
+
+  // One row ahead of the spaces while the active workspace has no core: it opens that workspace in the edit dialog.
+  coreRow(t, collapsed) {
+    const id = shared("workspaces.active");
+    if (collapsed || !showsCoreRow(this.store, id)) return [];
+    return [h_flex().id("workspace-choose-core").h(28).flex_none().px(8).items_center().rounded(6).text_size(12).text_color(t.dim)
+      .cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
+      .on_click(() => openWorkspaceDialog(activeWorkspace(this.store, id)))
+      .child("Choose this workspace's core in Edit")];
   }
 }

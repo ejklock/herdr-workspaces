@@ -1,7 +1,7 @@
 // The context menus' item lists, pure so Node can test them. An item is
 // [label, command, args, checked, workspace]; `terms` is the live terminal list, `git` the space's checkout kind.
 
-import { newSpaceArgs } from "./lib.js";
+import { newSpaceArgs, canMoveSpace } from "./lib.js";
 
 function workspaceMoveItems(tg, store) {
   const current = store.assign[tg.id];
@@ -41,10 +41,10 @@ function tabItems(tg) {
   ];
 }
 
-function spaceItems(tg, git) {
+function spaceItems(tg, git, movable) {
   return [
     ["Rename", "space.rename", { id: tg.id }],
-    ["Move to workspace…", "workspaces.move", { space: tg.id }],
+    ...(movable ? [["Move to workspace…", "workspaces.move", { space: tg.id }]] : []),
     ...(git ? [["New worktree", "worktree", { space: tg.id, action: "new" }], ["Open worktree", "worktree", { space: tg.id, action: "open" }]] : []),
     ...(git === "linked" ? [["Remove worktree", "worktree", { space: tg.id, action: "remove" }]] : []),
     ["Close", "space.close", { id: tg.id }],
@@ -62,8 +62,8 @@ function globalItems(store, activeId) {
   ];
 }
 
-/** The items of the menu `p.tab` names; "New space" carries the core of the workspace `activeId` names. */
-export function menuItems(p, git, store, activeId, terms) {
+/** The items of the menu `p.tab` names; "New space" carries the core of the workspace `activeId` names; `spaces` is the live space list, which decides whether a space can move. */
+export function menuItems(p, git, store, activeId, terms, spaces = []) {
   const { tab, target } = p ?? {};
   const tg = target ?? {};
   switch (tab) {
@@ -74,7 +74,7 @@ export function menuItems(p, git, store, activeId, terms) {
     case "tab":
       return tabItems(tg);
     case "space":
-      return spaceItems(tg, git);
+      return spaceItems(tg, git, canMoveSpace(store, spaces.find((s) => s.id === tg.id)));
     default:
       return globalItems(store, activeId);
   }

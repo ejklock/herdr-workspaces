@@ -19,6 +19,9 @@ import {
   newSpaceArgs,
   spaceListState,
   settledStore,
+  dialogCores,
+  canMoveSpace,
+  showsCoreRow,
 } from "./lib.js";
 import { menuItems } from "./menu-items.js";
 
@@ -496,8 +499,10 @@ test("menu: New space carries no core under Default, for a deleted workspace and
   for (const id of [undefined, "deleted", "loose"]) assert.deepEqual(newSpaceItem(core, id), ["New space", "space.new", {}]);
 });
 
+const remoteSpaces = [space("s1", "abby-stg")];
+
 test("menu: the space tab lists rename, move, worktree items for a repo and close", () => {
-  const items = (git) => menuItems(menuProps("space"), git, core, "base", []).map((i) => i.slice(0, 3));
+  const items = (git) => menuItems(menuProps("space"), git, core, "base", [], remoteSpaces).map((i) => i.slice(0, 3));
   assert.deepEqual(items(null), [
     ["Rename", "space.rename", { id: "s1" }],
     ["Move to workspace…", "workspaces.move", { space: "s1" }],
@@ -512,3 +517,159 @@ test("menu: the workspace-move tab checks the space's current workspace", () => 
   assert.deepEqual(items.map((i) => [i[0], i[3]]), [["Default", false], ...core.workspaces.map((w) => [w.name, w.id === "base"])]);
 });
 
+const machineEntry = (name, target = "sh -c", extra = {}) => ({ name, session: name, state: "connected", target, ...extra });
+const ownerMachines = [machineEntry("base-digital"), machineEntry("planet-argon"), machineEntry("inovatec"), machineEntry("abby-stg", "abby-stg", { state: "unreachable" })];
+const fields = (machine) => ({ name: "Acme", icon: "server", color: "ansi2", ...(machine === undefined ? {} : { machine }) });
+
+test("create with a core: a core no workspace names is stored", () => {
+  const { store, error } = createWorkspace(storeOf([base]), fields("inovatec"), "acme");
+  assert.equal(error, undefined);
+  assert.equal(store.workspaces[1].machine, "inovatec");
+});
+
+test("create with a core: a core another workspace names is refused by name and the store is untouched", () => {
+  const start = storeOf([base]);
+  const result = createWorkspace(start, fields("base-digital"), "acme");
+  assert.equal(result.store, undefined);
+  assert.match(result.error, /BASE/);
+  assert.match(result.error, /base-digital/);
+  assert.deepEqual(start, storeOf([base]));
+});
+
+test("create with a core: no machine leaves no machine key", () => {
+  const { store } = createWorkspace(storeOf([]), fields(undefined), "acme");
+  assert.equal("machine" in store.workspaces[0], false);
+});
+
+test("create with a core: a machine that is not a non-empty text is refused", () => {
+  for (const machine of ["", null, 5, {}]) {
+    const result = createWorkspace(storeOf([]), fields(machine), "acme");
+    assert.equal(typeof result.error, "string", `machine ${JSON.stringify(machine)}`);
+    assert.equal(result.store, undefined);
+  }
+});
+
+test("create with a core: a name differing only in case is another machine", () => {
+  const { store, error } = createWorkspace(storeOf([base]), fields("Base-Digital"), "acme");
+  assert.equal(error, undefined);
+  assert.equal(store.workspaces[1].machine, "Base-Digital");
+});
+
+test("rename with a core: keeping its own core is allowed", () => {
+  const { store, error } = renameWorkspace(storeOf([base]), "base", { ...fields("base-digital"), name: "BASE 2" });
+  assert.equal(error, undefined);
+  assert.equal(store.workspaces[0].machine, "base-digital");
+});
+
+test("rename with a core: another workspace's core is refused by name", () => {
+  const result = renameWorkspace(storeOf([base, argon]), "base", fields("planet-argon"));
+  assert.match(result.error, /Planet Argon/);
+  assert.equal(result.store, undefined);
+});
+
+test("rename with a core: an explicitly absent machine removes the key and keeps the assignments", () => {
+  const start = storeOf([base], { "abby-stg/1": "base" });
+  const { store } = renameWorkspace(start, "base", { ...fields(undefined), machine: undefined });
+  assert.equal("machine" in store.workspaces[0], false);
+  assert.deepEqual(store.assign, { "abby-stg/1": "base" });
+});
+
+test("rename with a core: a machine that is not a non-empty text is refused", () => {
+  for (const machine of ["", null, 7]) assert.equal(typeof renameWorkspace(storeOf([base]), "base", fields(machine)).error, "string");
+});
+
+test("store machine: a hand-edited file with two workspaces on one core parses with the first winning", () => {
+  const text = JSON.stringify(storeOf([{ ...workspace("a", "A"), machine: "m" }, { ...workspace("b", "B"), machine: "m" }]));
+  const { store } = parseStore(text);
+  assert.equal(store.workspaces[0].machine, "m");
+  assert.equal("machine" in store.workspaces[1], false);
+});
+
+test("dialog cores: creating offers every free sh -c machine by name, never an SSH one", () => {
+  assert.deepEqual(dialogCores(storeOf([]), ownerMachines, undefined).map((m) => m.name), ["base-digital", "inovatec", "planet-argon"]);
+});
+
+test("dialog cores: a core another workspace names is not offered", () => {
+  assert.deepEqual(dialogCores(storeOf([base]), ownerMachines, undefined).map((m) => m.name), ["inovatec", "planet-argon"]);
+});
+
+test("dialog cores: editing a workspace lists its own core with the free ones, sorted by name", () => {
+  assert.deepEqual(dialogCores(storeOf([base]), ownerMachines, "base").map((m) => m.name), ["base-digital", "inovatec", "planet-argon"]);
+  assert.deepEqual(dialogCores(storeOf([base, argon]), ownerMachines, "argon").map((m) => m.name), ["inovatec", "planet-argon"]);
+});
+
+test("dialog cores: a temporary machine is excluded and an unreachable sh -c one is listed with its state", () => {
+  const list = [machineEntry("tmp", "sh -c", { temporary: true }), machineEntry("down", "sh -c", { state: "unreachable" })];
+  assert.deepEqual(dialogCores(storeOf([]), list, undefined), [{ name: "down", state: "unreachable" }]);
+});
+
+test("dialog cores: editing keeps the workspace's own core first as not attached when the machine list lacks it", () => {
+  const list = [machineEntry("inovatec", "sh -c", { state: "connected" })];
+  assert.deepEqual(dialogCores(storeOf([base]), list, "base"), [
+    { name: "base-digital", state: "not attached" },
+    { name: "inovatec", state: "connected" },
+  ]);
+});
+
+test("dialog cores: the own core listed with another target or as temporary still shows once as not attached", () => {
+  for (const own of [machineEntry("base-digital", "ssh"), machineEntry("base-digital", "sh -c", { temporary: true })]) {
+    const shown = dialogCores(storeOf([base]), [own, machineEntry("inovatec")], "base");
+    assert.deepEqual(shown, [{ name: "base-digital", state: "not attached" }, { name: "inovatec", state: "connected" }]);
+  }
+});
+
+test("dialog cores: creating or editing another workspace never adds a core missing from the list", () => {
+  const list = [machineEntry("inovatec")];
+  assert.deepEqual(dialogCores(storeOf([base]), list, undefined).map((c) => c.name), ["inovatec"]);
+  assert.deepEqual(dialogCores(storeOf([base, argon]), list, "argon").map((c) => c.name), ["planet-argon", "inovatec"]);
+});
+
+test("dialog cores: a listed own core appears once with its listed state", () => {
+  const list = [machineEntry("base-digital", "sh -c", { state: "connected" }), machineEntry("inovatec", "sh -c", {})];
+  const shown = dialogCores(storeOf([base]), list, "base");
+  assert.equal(shown.filter((c) => c.name === "base-digital").length, 1);
+  assert.equal(shown.find((c) => c.name === "base-digital").state, "connected");
+});
+
+test("dialog cores: every entry has a non-empty text state, defaulting to unknown", () => {
+  const entry = (state) => ({ name: "x", target: "sh -c", state });
+  for (const bad of [undefined, 7, "", null, {}]) {
+    const raw = bad === undefined ? { name: "x", target: "sh -c" } : entry(bad);
+    assert.deepEqual(dialogCores(storeOf([]), [raw], undefined), [{ name: "x", state: "unknown" }]);
+  }
+  assert.deepEqual(dialogCores(storeOf([]), [entry("connected")], undefined), [{ name: "x", state: "connected" }]);
+});
+
+test("dialog cores: malformed input gives an empty list", () => {
+  for (const bad of [undefined, null, "x", 3, [null, 5, {}, { target: "sh -c" }, { name: "", target: "sh -c" }]]) {
+    assert.deepEqual(dialogCores(storeOf([]), bad, undefined), []);
+  }
+});
+
+test("move to workspace: offered only for a space on a machine no workspace names", () => {
+  assert.equal(canMoveSpace(core, space("a", null)), false);
+  assert.equal(canMoveSpace(core, space("a", "base-digital")), false);
+  assert.equal(canMoveSpace(core, space("a", "abby-stg")), true);
+  assert.equal(canMoveSpace(storeOf([]), space("a", "base-digital")), true);
+  assert.equal(canMoveSpace(core, undefined), false);
+});
+
+test("menu: Move to workspace is offered for a space on another machine only", () => {
+  const labels = (spaces) => menuItems(menuProps("space"), null, core, "base", [], spaces).map((i) => i[0]);
+  assert.ok(labels(remoteSpaces).includes("Move to workspace…"));
+  assert.ok(!labels([space("s1")]).includes("Move to workspace…"));
+  assert.ok(!labels([space("s1", "base-digital")]).includes("Move to workspace…"));
+  assert.ok(!labels([]).includes("Move to workspace…"));
+});
+
+test("core row: shown for an active workspace with no machine only", () => {
+  assert.equal(showsCoreRow(core, "loose"), true);
+  assert.equal(showsCoreRow(core, "base"), false);
+  assert.equal(showsCoreRow(core, undefined), false);
+  assert.equal(showsCoreRow(core, "deleted"), false);
+});
+
+test("core row: the listed spaces stay the moved-in ones of other machines", () => {
+  assert.equal(showsCoreRow(core, "loose"), true);
+  assert.deepEqual(idsOf(visibleSpaces(core, "loose", everySpace)), ["abby-stg/4"]);
+});

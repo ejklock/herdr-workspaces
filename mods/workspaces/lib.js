@@ -134,19 +134,37 @@ export function newWorkspaceId(store, name) {
   return id;
 }
 
-/** Adds a workspace under the given id. Gives { store } or { error }. */
-export function createWorkspace(store, { name, icon, color }, id) {
-  const checked = checkName(store, name, undefined);
-  if (checked.error) return { error: checked.error };
-  return { store: { ...store, workspaces: [...store.workspaces, { id, name: checked.name, icon, color }] } };
+/** `{}` for no core, `{ machine }` for a free core, else the reason it is refused. Machine names are case-sensitive, like hc's. */
+function checkMachine(store, machine, ownId) {
+  if (machine === undefined) return {};
+  if (!isText(machine)) return { error: "A core must be a machine name." };
+  const owner = store.workspaces.find((w) => w.id !== ownId && w.machine === machine);
+  if (owner) return { error: `The core "${machine}" already belongs to ${owner.name}.` };
+  return { machine };
 }
 
-/** Changes a workspace's name, icon and color. Gives { store } or { error }. */
-export function renameWorkspace(store, id, { name, icon, color }) {
-  const checked = checkName(store, name, id);
+const withoutMachine = ({ machine: _machine, ...rest }) => rest;
+
+/** Adds a workspace under the given id; `machine` binds its core. Gives { store } or { error }. */
+export function createWorkspace(store, { name, icon, color, machine }, id) {
+  const checked = checkName(store, name, undefined);
   if (checked.error) return { error: checked.error };
-  const workspaces = store.workspaces.map((w) => (w.id === id ? { ...w, name: checked.name, icon, color } : w));
-  return { store: { ...store, workspaces } };
+  const core = checkMachine(store, machine, undefined);
+  if (core.error) return { error: core.error };
+  return { store: { ...store, workspaces: [...store.workspaces, { id, name: checked.name, icon, color, ...core }] } };
+}
+
+/**
+ * Changes a workspace's name, icon and color. A `machine` key binds its core; the key present with
+ * no value unbinds it (assignments stay); the key absent leaves the core as it is. Gives { store } or { error }.
+ */
+export function renameWorkspace(store, id, fields) {
+  const checked = checkName(store, fields.name, id);
+  if (checked.error) return { error: checked.error };
+  const core = "machine" in fields ? checkMachine(store, fields.machine, id) : undefined;
+  if (core?.error) return { error: core.error };
+  const edit = (w) => ({ ...(core ? withoutMachine(w) : w), name: checked.name, icon: fields.icon, color: fields.color, ...core });
+  return { store: { ...store, workspaces: store.workspaces.map((w) => (w.id === id ? edit(w) : w)) } };
 }
 
 export function deleteWorkspace(store, id) {
@@ -221,4 +239,35 @@ export function spaceListState(coreLoading, rowCount) {
 export async function settledStore(store, read, path) {
   if (store.workspaces.length > 0) return store;
   return (await loadStore(read, path)).store;
+}
+
+const isSh = (m) => isRecord(m) && isText(m.name) && m.target === "sh -c" && !m.temporary;
+
+/**
+ * The cores the dialog offers, from the `machines` of `hc machine ls --json`: attached `sh -c`
+ * machines no other workspace names (the edited one, `ownId`, keeps its own), sorted by name,
+ * each with its connection state ("unknown" when the list gives no text one). The edited workspace's
+ * own core comes first as "not attached" when the list does not offer it, so the binding stays visible.
+ * Anything malformed gives an empty list.
+ */
+export function dialogCores(store, machines, ownId) {
+  const taken = new Set(store.workspaces.filter((w) => w.id !== ownId).map((w) => w.machine));
+  const cores = (Array.isArray(machines) ? machines : [])
+    .filter((m) => isSh(m) && !taken.has(m.name))
+    .map((m) => ({ name: m.name, state: isText(m.state) ? m.state : "unknown" }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const own = store.workspaces.find((w) => w.id === ownId)?.machine;
+  if (!own || cores.some((c) => c.name === own)) return cores;
+  return [{ name: own, state: "not attached" }, ...cores];
+}
+
+/** True for a space on another machine: not this computer and named by no workspace. */
+export function canMoveSpace(store, space) {
+  return space !== undefined && !isLocal(space) && !coreNames(store).has(space.machine);
+}
+
+/** True when the sidebar should ask the active workspace to choose its core: it exists and names none. */
+export function showsCoreRow(store, activeId) {
+  const active = activeWorkspace(store, activeId);
+  return active !== undefined && !active.machine;
 }
