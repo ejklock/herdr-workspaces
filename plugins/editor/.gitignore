@@ -12,3 +12,13 @@ mods/my-files/*.js
 mods/my-files/files/
 mods/my-files/*.d.ts
 mods/my-files/jsconfig.json
+mods/my-diff/*.js
+!mods/my-diff/main.js
+mods/my-diff/changes/
+mods/my-diff/*.d.ts
+mods/my-diff/jsconfig.json
+mods/my-changes/*.js
+!mods/my-changes/main.js
+mods/my-changes/list/
+mods/my-changes/*.d.ts
+mods/my-changes/jsconfig.json

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "outDir": "mods/my-diff" },
+  "include": ["src/changes/**/*.ts"]
+}
