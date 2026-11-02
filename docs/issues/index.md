@@ -16,3 +16,4 @@
 * [0009 — Layout card shows a preview and the name Workspaces](0009-layout-card-shows-a-preview-and-the-name-workspaces.md) - closed
 * [0010 — Installer marker names the project, not the checkout path](0010-installer-marker-names-the-project-not-the-checkout-path.md) - closed
 * [0011 — Changes panel and side-by-side diff pane](0011-changes-panel-and-side-by-side-diff-pane.md) - closed
+* [0012 — Editor opens files of a workspace core as local files](0012-editor-opens-files-of-a-workspace-core-as-local-files.md) - closed

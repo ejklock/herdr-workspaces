@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { routePane, isLocalPane, type Claims } from "../../src/editor/routing.ts";
+import { routePane, isLocalPane, localMachines, machineToReach, type Claims } from "../../src/editor/routing.ts";
 
 const me = { token: "me", path: "/a.txt" };
 const route = (open: string[], claims: Claims, current?: string, proof?: string) =>
@@ -94,5 +94,44 @@ describe("editor pane on the local machine", () => {
 
   it("is not local for a machine-prefixed pane inside a remote space", () => {
     assert.equal(isLocalPane("box/p1", [pane("box/p1", "box/t1")], [space("box", "box/t1")]), false);
+  });
+
+  it("is local in a space on a machine that runs on this computer", () => {
+    const local = new Set(["acme"]);
+    assert.equal(isLocalPane("acme/p1", [pane("acme/p1", "acme/t1")], [space("acme", "acme/t1")], local), true);
+    assert.equal(isLocalPane("box/p1", [pane("box/p1", "box/t1")], [space("box", "box/t1")], local), false);
+  });
+});
+
+describe("machines on this computer", () => {
+  const listing = (...machines: unknown[]) => JSON.stringify({ machines });
+  const machine = (name: string, target: string, extra: Record<string, unknown> = {}) => ({ name, target, via: true, state: "connected", ...extra });
+
+  it("names each machine reached through a plain sh -c, connected or not, temporary or not", () => {
+    const found = localMachines(listing(machine("acme", "sh -c"), machine("down", "sh -c", { state: "unreachable" }), machine("tmp", "sh -c", { temporary: true })));
+    assert.deepEqual([...found].sort(), ["acme", "down", "tmp"]);
+  });
+
+  it("leaves out machines reached over ssh or any other command", () => {
+    const found = localMachines(listing(
+      machine("stg", "abby-stg", { via: false }),
+      machine("fly", "fly ssh console -a x --pty=false -C"),
+      machine("hop", "sh -c ssh box"),
+      machine("pad", " sh -c"),
+    ));
+    assert.deepEqual([...found], []);
+  });
+
+  it("names none for output that is not a machine listing", () => {
+    for (const text of ["", "not json", "[]", "null", JSON.stringify({ machines: "x" }), listing(null, 3, { target: "sh -c" }, { name: 7, target: "sh -c" })]) {
+      assert.deepEqual([...localMachines(text)], [], text);
+    }
+  });
+
+  it("reads a file on such a machine as a file on this computer, and any other machine through herdr-core", () => {
+    const local = new Set(["acme"]);
+    assert.equal(machineToReach("acme", local), null);
+    assert.equal(machineToReach("box", local), "box");
+    assert.equal(machineToReach(null, local), null);
   });
 });

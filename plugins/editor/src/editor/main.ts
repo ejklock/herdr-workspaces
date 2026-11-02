@@ -2,10 +2,10 @@
 import { View, div } from "gpui-kit";
 import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { props, focused, panes, spaces, shared, setShared, run, exec, readTextFile, writeTextFile, theme, settings, nextCommand } from "herdr";
+import { props, focused, panes, spaces, shared, setShared, run, exec, hc, readTextFile, writeTextFile, theme, settings, nextCommand } from "herdr";
 import { EditorDocument, textToShow } from "./document.ts";
 import { baseName, editorFontSize, languageFor, syntaxColors } from "./language.ts";
-import { routePane, isLocalPane, type Claims } from "./routing.ts";
+import { routePane, isLocalPane, localMachines, machineToReach, type Claims } from "./routing.ts";
 
 type Colors = Record<string, string>;
 type Hex = `#${string}`;
@@ -15,6 +15,9 @@ const hex = (t: Colors, name: string): Hex => { const v = t[name]; return v?.sta
 export default class Editing extends View {
   private doc = new EditorDocument({ readTextFile, writeTextFile, exec }, "");
   private path = "";
+  private on: string | null = null;
+  /** The machines that run on this computer, once asked of herdr-core. */
+  private local: ReadonlySet<string> | undefined;
   private code: EditorState | undefined;
   private pane: string | undefined;
   private generation = 0;
@@ -24,7 +27,7 @@ export default class Editing extends View {
   override init(_props: unknown, cx: AsyncContext): void {
     const given = props() as { path?: string; on?: string | null } | undefined;
     this.path = given?.path ?? "";
-    this.doc = new EditorDocument({ readTextFile, writeTextFile, exec }, this.path, given?.on ?? null);
+    this.on = given?.on ?? null;
     try { cx.bind_keys([{ keystroke: "cmd-s", action: "editor-save", context: "EditorPane" }]); } catch { /* another copy bound it */ }
     this.settle();
     void this.open(cx);
@@ -54,7 +57,7 @@ export default class Editing extends View {
 
   /** The hand-off starts a terminal on the focused space's machine, so it is offered only for an editor pane on this machine. */
   private canHandOff(): boolean {
-    return this.doc.canHandOff() && this.pane !== undefined && isLocalPane(this.pane, panes(), spaces());
+    return this.doc.canHandOff() && this.pane !== undefined && isLocalPane(this.pane, panes(), spaces(), this.local);
   }
 
   private claims(): Claims { return (shared("editor.claims") ?? {}) as Claims; }
@@ -88,6 +91,12 @@ export default class Editing extends View {
     this.code = undefined;
     cx.notify();
     if (!this.path) { this.doc.status = { kind: "unavailable", message: "No file to open" }; return; }
+    if (this.local === undefined) {
+      const local = await hc(["machine", "ls", "--json"]).then(r => (r.code === 0 ? localMachines(r.stdout) : new Set<string>()), () => new Set<string>());
+      if (generation !== this.generation) return;
+      this.local = local;
+      this.doc = new EditorDocument({ readTextFile, writeTextFile, exec }, this.path, machineToReach(this.on, local));
+    }
     await this.doc.open();
     if (generation !== this.generation) return;
     if (this.doc.status.kind === "editable" || this.doc.status.kind === "readonly") {

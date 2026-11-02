@@ -32,13 +32,40 @@ export function routePane({ open, claims, token, path, current, proof }: Routing
   return free.length === 1 ? free[0] : undefined;
 }
 
-/** Whether an editor pane sits in a space on this machine, decided from the app's own pane and space lists; an unknown pane or tab is not local. */
+/**
+ * Whether an editor pane sits in a space on this computer, decided from the app's own pane and space lists; an unknown pane or tab is not local.
+ * `local` names the machines that run on this computer (see `localMachines`).
+ */
 export function isLocalPane(
   pane: string,
   panes: readonly { pane: string; tab: string }[],
   spaces: readonly { machine: string | null; tabs: readonly { id: string }[] }[],
+  local: ReadonlySet<string> = new Set(),
 ): boolean {
   const tab = panes.find(p => p.pane === pane)?.tab;
   if (tab === undefined) return false;
-  return spaces.some(space => space.machine === null && space.tabs.some(t => t.id === tab));
+  return spaces.some(space => (space.machine === null || local.has(space.machine)) && space.tabs.some(t => t.id === tab));
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The machines in an `hc machine ls --json` listing that run on this computer: another herdr-core session reached through a plain `sh -c`,
+ * which shares this computer's files, paths and programs. Anything that is not such a listing names none.
+ */
+export function localMachines(listing: string): ReadonlySet<string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(listing);
+  } catch {
+    return new Set();
+  }
+  const machines = isRecord(parsed) && Array.isArray(parsed["machines"]) ? parsed["machines"] : [];
+  const names = machines.flatMap(m => (isRecord(m) && typeof m["name"] === "string" && m["target"] === "sh -c" ? [m["name"]] : []));
+  return new Set(names);
+}
+
+/** The machine a file must be reached through, or null when the file is on this computer. */
+export function machineToReach(on: string | null, local: ReadonlySet<string>): string | null {
+  return on !== null && local.has(on) ? null : on;
 }
