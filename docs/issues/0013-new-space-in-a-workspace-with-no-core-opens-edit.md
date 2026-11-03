@@ -2,7 +2,7 @@
 type: Issue
 title: New space in a workspace with no core opens Edit
 description: In a workspace that names no core, + / Cmd+N / New space open the edit dialog instead of making the space on the local core, where only Default lists it.
-status: in-progress
+status: closed
 timestamp: 2026-11-03T20:38:15Z
 ---
 
@@ -28,4 +28,6 @@ The owner chose option A over B (a toast, no space) and C (keep the behavior).
 
 - [x] The new-space choice opens Edit for an active workspace with no core, and makes the space on the core or the local core otherwise (`mods/workspaces/lib.test.js`).
 - [x] "+" and Cmd+N in the spaces role, and "New space" in the menu, follow that choice.
-- [ ] In the owner's window, "+" on an unbound workspace opens Edit.
+- [ ] In the owner's window, "+" on an unbound workspace opens Edit. Not verified at release: it needs `bin/install` into the owner's app, which was not run.
+
+Shipped in #7 (de971e1).
