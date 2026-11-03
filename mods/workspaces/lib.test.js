@@ -20,6 +20,7 @@ import {
   sidebarMachines,
   newSpaceMachine,
   newSpaceArgs,
+  newSpaceStep,
   spaceListState,
   settledStore,
   dialogCores,
@@ -337,6 +338,25 @@ test("new space args: carry the machine when there is one and are empty otherwis
   assert.deepEqual(newSpaceArgs(core, "base"), { machine: "base-digital" });
   assert.deepEqual(newSpaceArgs(core, undefined), {});
   assert.deepEqual(newSpaceArgs(core, "loose"), {});
+});
+
+test("new space step: a workspace with a core creates the space on that core", () => {
+  assert.deepEqual(newSpaceStep(core, "base"), { create: { machine: "base-digital" } });
+});
+
+test("new space step: Default, an id the store no longer holds and an empty store create on the local core", () => {
+  assert.deepEqual(newSpaceStep(core, undefined), { create: {} });
+  assert.deepEqual(newSpaceStep(core, "deleted"), { create: {} });
+  assert.deepEqual(newSpaceStep(storeOf([]), "w1"), { create: {} });
+});
+
+test("new space step: a workspace with no core opens its edit dialog and creates nothing", () => {
+  assert.deepEqual(newSpaceStep(core, "loose"), { edit: loose });
+});
+
+test("new space step: a workspace whose machine is an empty string opens its edit dialog", () => {
+  const blank = { ...workspace("w1", "Blank"), machine: "" };
+  assert.deepEqual(newSpaceStep(storeOf([blank]), "w1"), { edit: blank });
 });
 
 test("store machine: a workspace's machine is kept when it is a non-empty string", () => {

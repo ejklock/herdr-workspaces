@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify, nextCommand } from "herdr";
-import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceArgs, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
+import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceStep, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
 import { followWorkspaceStore, openWorkspaceDialog } from "./switcher.js";
 
 function find(node, id) {
@@ -76,10 +76,12 @@ export default class Spaces extends View {
     cx.timer.every(250, (cx) => this.checkNew(cx));
   }
 
-  // Makes a space on the active workspace's core; before any store is read it waits for the file instead of making it on the local core.
+  // Makes a space on the active workspace's core, or opens Edit when it names none; before any store is read it waits for the file instead of making it on the local core.
   async newSpace() {
     const store = await settledStore(this.store, readTextFile, storePaths(storeHome(shared("workspaces.home"), appHome())).file).catch(() => this.store);
-    run("space.new", newSpaceArgs(store, shared("workspaces.active")));
+    const step = newSpaceStep(store, shared("workspaces.active"));
+    if (step.edit) openWorkspaceDialog(step.edit);
+    else run("space.new", step.create);
   }
 
   // The key command "workspaces:new-space" reaches every copy of this mod; only this role acts on it.
