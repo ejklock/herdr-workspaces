@@ -65,7 +65,7 @@ Programs it runs: `git` through `exec` (`git --no-optional-locks -c core.fsmonit
 - Default is not stored: it is this computer's spaces.
 - A workspace lists every space of its core, plus spaces of other machines moved to it; the id of a remote space is machine-prefixed. Two workspaces never name one core (the dialog refuses it; a hand-edited file keeps the first).
 - The dialog only picks an attached core; a core is made outside the app with `hc machine add --via 'sh -c' --name <workspace> --session <workspace>`, and the mod does not do that for you. The dialog lists cores with `hc machine ls --json` and never starts one.
-- Cmd+N makes a space on the active workspace's core when `keys.json` has `"cmd-n": "workspaces:new-space"`; the mod never edits `keys.json`.
+- Cmd+N makes a space on the active workspace's core when `keys.json` has `"cmd-n": "workspaces:new-space"`; the mod never edits `keys.json`. In a workspace with no core it opens Edit instead, as do the "+" button and the menu's "New space".
 - The "Workspace" popup height is capped at 480px, so a very long list scrolls.
 - Moving a space does not move its terminals: the filter only hides spaces and their agents.
 - Icon names are limited to the ten listed; an unknown stored icon draws as `layers`.

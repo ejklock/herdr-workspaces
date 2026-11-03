@@ -277,6 +277,15 @@ export function newSpaceArgs(store, activeId) {
   return machine ? { machine } : {};
 }
 
+/**
+ * What a new space does: `{ edit: workspace }` when the active workspace names no core (a space made
+ * on the local core would be listed only under Default), else `{ create: args }` for `space.new`.
+ */
+export function newSpaceStep(store, activeId) {
+  if (showsCoreRow(store, activeId)) return { edit: activeWorkspace(store, activeId) };
+  return { create: newSpaceArgs(store, activeId) };
+}
+
 /** What the sidebar's list shows: "loading" while the core is still being read and nothing is listed, "empty" once it is read and nothing is listed, else "rows". */
 export function spaceListState(coreLoading, rowCount) {
   if (rowCount > 0) return "rows";
