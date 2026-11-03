@@ -3,6 +3,7 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
+* [0013 — New space in a workspace with no core opens Edit](0013-new-space-in-a-workspace-with-no-core-opens-edit.md) - in-progress
 
 ## Closed
 
