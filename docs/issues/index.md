@@ -3,7 +3,6 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
-* [0013 — New space in a workspace with no core opens Edit](0013-new-space-in-a-workspace-with-no-core-opens-edit.md) - in-progress
 
 ## Closed
 
@@ -18,3 +17,4 @@
 * [0010 — Installer marker names the project, not the checkout path](0010-installer-marker-names-the-project-not-the-checkout-path.md) - closed
 * [0011 — Changes panel and side-by-side diff pane](0011-changes-panel-and-side-by-side-diff-pane.md) - closed
 * [0012 — Editor opens files of a workspace core as local files](0012-editor-opens-files-of-a-workspace-core-as-local-files.md) - closed
+* [0013 — New space in a workspace with no core opens Edit](0013-new-space-in-a-workspace-with-no-core-opens-edit.md) - closed
