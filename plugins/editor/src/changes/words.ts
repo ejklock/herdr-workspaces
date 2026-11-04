@@ -78,3 +78,8 @@ function toSpans(tokens: string[], kept: boolean[]): Span[] {
   });
   return spans;
 }
+
+/** Each span cut after every whitespace run, so a highlighted line can break between pieces; the pieces join back to the line. */
+export function wrapPieces(spans: readonly Span[]): Span[] {
+  return spans.flatMap(({ text, changed }) => (text.match(/\S*\s+|\S+/gu) ?? []).map(piece => ({ text: piece, changed })));
+}

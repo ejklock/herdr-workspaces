@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { wordSpans, rowSpans, type Span } from "../../src/changes/words.ts";
+import { wordSpans, rowSpans, wrapPieces, type Span } from "../../src/changes/words.ts";
 import type { DisplayRow } from "../../src/changes/rows.ts";
 
 const joined = (spans: Span[]): string => spans.map((s) => s.text).join("");
@@ -154,5 +154,34 @@ describe("rowSpans", () => {
 
   it("gives undefined past the token cap on one side", () => {
     assert.equal(rowSpans(change(`a${" b".repeat(200)}`, "a")), undefined);
+  });
+});
+
+describe("wrap pieces", () => {
+  const pieces = (spans: Span[]): [string, boolean][] => wrapPieces(spans).map((s) => [s.text, s.changed]);
+
+  it("wrap pieces break an unchanged span after each whitespace run", () => {
+    assert.deepEqual(pieces([{ text: "foo bar baz", changed: false }]), [["foo ", false], ["bar ", false], ["baz", false]]);
+  });
+  it("wrap pieces keep the changed flag of the span they come from", () => {
+    assert.deepEqual(pieces([{ text: "a ", changed: false }, { text: "bb cc", changed: true }]), [["a ", false], ["bb ", true], ["cc", true]]);
+  });
+  it("wrap pieces split leading indentation from the first word", () => {
+    assert.deepEqual(pieces([{ text: "    const x", changed: false }]), [["    ", false], ["const ", false], ["x", false]]);
+  });
+  it("wrap pieces leave a span with no whitespace whole", () => {
+    assert.deepEqual(pieces([{ text: "word", changed: true }]), [["word", true]]);
+  });
+  it("wrap pieces of no spans are none, and an empty span draws nothing", () => {
+    assert.deepEqual(pieces([]), []);
+    assert.deepEqual(pieces([{ text: "", changed: true }]), []);
+  });
+  it("wrap pieces keep tabs and double spaces inside the piece they end", () => {
+    assert.deepEqual(pieces([{ text: "a\t\tb", changed: false }]), [["a\t\t", false], ["b", false]]);
+    assert.deepEqual(pieces([{ text: "a  b", changed: false }]), [["a  ", false], ["b", false]]);
+  });
+  it("wrap pieces join back to the original line", () => {
+    const spans = [{ text: "  x = ", changed: false }, { text: "foo(a,  b)\t", changed: true }, { text: "end", changed: false }];
+    assert.equal(joined(wrapPieces(spans)), joined(spans));
   });
 });
