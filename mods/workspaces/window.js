@@ -28,7 +28,9 @@ const isRunning = async (socket) => (await exec("/bin/sh", ["-c", 'exec /usr/bin
 
 async function writeShared({ path, id, mainHome }) {
   const text = await readTextFile(path);
-  await writeTextFile(path, `${JSON.stringify(windowShared(text, id, mainHome), null, 2)}\n`, text);
+  // The main home's file only lends the welcome state; one that cannot be read must not fail the open.
+  const mainText = await readTextFile(`${mainHome}/shared.json`).catch(() => undefined);
+  await writeTextFile(path, `${JSON.stringify(windowShared(text, id, mainHome, mainText), null, 2)}\n`, text);
 }
 
 const pause = (ms) => exec("/bin/sleep", [String(ms / 1000)]);

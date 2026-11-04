@@ -3,6 +3,7 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
+* [0014 — Workspace window inherits the main window's look and welcome state](0014-workspace-window-inherits-the-main-window-s-look-and-welcome-state.md) - open
 
 ## Closed
 

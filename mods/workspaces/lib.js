@@ -350,19 +350,29 @@ export function windowHome(userHome, id) {
   return `${userHome.replace(/\/+$/, "")}/${WINDOWS_FOLDER}/${folder}`;
 }
 
+const WELCOMED_KEY = "frame.welcomed";
+
+/** A copy of the JSON object in `text`; text that is absent, unreadable or not an object gives an empty one. */
+function parseRecord(text) {
+  try {
+    const data = JSON.parse(text ?? "");
+    return isRecord(data) ? { ...data } : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * The shared state of a workspace window: the text of its existing shared.json with `layout`, the active
  * workspace (null for Default), the main home that holds the store and the one-shot focus flag set.
- * Every other key is kept; text that is absent or not a JSON object counts as no keys.
+ * Every other key is kept; text that is absent or not a JSON object counts as no keys. The one key taken from
+ * the main home's shared.json text (`mainText`) is `frame.welcomed`, when it holds a value, so a window opens
+ * without the welcome the owner already finished.
  */
-export function windowShared(text, id, mainHome) {
-  let kept = {};
-  try {
-    const data = JSON.parse(text ?? "");
-    if (isRecord(data)) kept = data;
-  } catch {
-    // Unreadable text is replaced, not repaired.
-  }
+export function windowShared(text, id, mainHome, mainText) {
+  const kept = parseRecord(text);
+  const welcomed = parseRecord(mainText)[WELCOMED_KEY];
+  if (welcomed !== undefined && welcomed !== null) kept[WELCOMED_KEY] = welcomed;
   return { ...kept, layout: "Workspaces", "workspaces.active": id ?? null, "workspaces.home": mainHome, [FOCUS_KEY]: true };
 }
 
@@ -373,6 +383,7 @@ const WINDOW_SOURCES = [
   { path: "mods/my-changes", dir: true, optional: true },
   { path: "mods/my-diff", dir: true, optional: true },
   { path: "layouts/Workspaces.json", dir: false },
+  { path: "layouts/.state", dir: true, optional: true },
   { path: "keys.json", dir: false, optional: true },
   { path: "settings.json", dir: false, optional: true },
   { path: "themes", dir: true, optional: true },
