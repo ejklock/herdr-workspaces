@@ -2,7 +2,7 @@
 type: Issue
 title: Workspace window inherits the main window's look and welcome state
 description: A workspace window mirrors the main home's layouts/.state and carries frame.welcomed, so it opens with the owner's theme, the Changes/Files panel and no welcome.
-status: open
+status: closed
 timestamp: 2026-11-04T14:03:24Z
 ---
 
@@ -43,3 +43,5 @@ Out of scope: other keys of the main `shared.json` (sidebar width, my-diff wrap,
 - In the app, a workspace window opened after `bin/install` shows the main window's theme, the Changes/Files panel, and no welcome.
 
 ### Outcome
+
+Shipped in #10 (2fcca29). Each open of a workspace window mirrors the main home's `layouts/.state/` and carries `frame.welcomed` from the main home's `shared.json`, and no other key of it. `npm test` is green (278 + 553). Planted faults fail by assertion: dropping the mirror, making it required, mirroring it as a file, ignoring the main text, carrying a null, and copying the main home's other keys. The fix was installed with `bin/install ~/.config/herdr-app` on 2026-11-04. Not verified at release: a reopened workspace window in the owner's app showing the theme, the Changes/Files panel and no welcome.
