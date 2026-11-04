@@ -1,17 +1,19 @@
 // Side-by-side diff of one file, HEAD against the working tree; the Changes list picks the file.
-import { View, div } from "gpui-kit";
+import { View, div, list } from "gpui-kit";
 import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
-import { props, shared, focused, panes, run, exec, readTextFile, watchFolder, theme, settings } from "herdr";
+import { props, shared, setShared, focused, panes, run, exec, readTextFile, watchFolder, theme, settings } from "herdr";
 import { targetToShow, differsFrom, reloadsOnTick, displayRows, loadView, type DiffTarget, type DisplayRow, type View as DiffView } from "./rows.ts";
-import { stops, step, stepsOf, clampCursor, editorTarget, type EditorClaims } from "./nav.ts";
+import { stops, step, currentBlock, stepsOf, clampCursor, editorTarget, wrapsLines, type EditorClaims } from "./nav.ts";
 import type { Row, Cell } from "./diff.ts";
-import { rowSpans, type Span } from "./words.ts";
+import { rowSpans, wrapPieces, type Span } from "./words.ts";
+import { diffTints, type DiffTints, type Tint } from "./tints.ts";
 
 type Hex = `#${string}`;
 type Colors = Record<string, string>;
 
 const TARGETS_KEY = "my-diff.targets";
+const WRAP_KEY = "my-diff.wrap";
 const CONTEXT = 3;
 const ROW_HEIGHT = 20;
 
@@ -86,6 +88,11 @@ export default class Diff extends View {
     cx.notify();
   }
 
+  private toggleWrap(cx: Context): void {
+    setShared(WRAP_KEY, !wrapsLines(shared(WRAP_KEY)));
+    cx.notify();
+  }
+
   private openInEditor(cx: Context): void {
     const target = this.target;
     const f = focused();
@@ -104,8 +111,8 @@ export default class Diff extends View {
     cx.notify();
   }
 
-  private button(id: string, label: string, enabled: boolean, t: Colors, click: (cx: Context) => void): Element {
-    return div().id(id).h(24).px(10).flex_none().flex().items_center().rounded(6).bg(hex(t, "raised"))
+  private button(id: string, label: string, enabled: boolean, t: Colors, click: (cx: Context) => void, background = "raised"): Element {
+    return div().id(id).h(24).px(10).flex_none().flex().items_center().rounded(6).bg(hex(t, background))
       .text_color(enabled ? hex(t, "foreground") : hex(t, "dim"))
       .when(enabled, el => el.cursor_pointer().hover(s => s.bg(hex(t, "hover"))).on_click((_e, cx) => click(cx)))
       .child(label);
@@ -120,7 +127,8 @@ export default class Diff extends View {
     if (this.message === undefined) {
       bar.child(div().flex_none().text_color(hex(t, "dim")).child(position))
         .child(this.button("diff-previous", "Previous", can.previous, t, cx => this.move("previous", cx)))
-        .child(this.button("diff-next", "Next", can.next, t, cx => this.move("next", cx)));
+        .child(this.button("diff-next", "Next", can.next, t, cx => this.move("next", cx)))
+        .child(this.button("diff-wrap", "Wrap", true, t, cx => this.toggleWrap(cx), wrapsLines(shared(WRAP_KEY)) ? "selected" : "raised"));
     }
     if (this.target && !this.deleted) bar.child(this.button("diff-open", "Open in editor", true, t, cx => this.openInEditor(cx)));
     return bar;
@@ -150,31 +158,44 @@ export default class Diff extends View {
     cx.notify();
   }
 
-  private cell(cell: Cell | undefined, tint: Hex | undefined, t: Colors, spans?: Span[]): Element[] {
-    const shade = (el: Element): Element => (cell && tint ? el.bg(`${tint}18` as Hex) : el);
+  private cell(cell: Cell | undefined, tint: Tint | undefined, filler: Hex, t: Colors, wrap: boolean, spans?: Span[]): Element[] {
+    const wash = tint && (cell ? tint.line : filler);
+    const shade = (el: Element): Element => {
+      const washed = wash ? el.bg(wash) : el;
+      return wrap ? washed.self_stretch() : washed;
+    };
     const text = spans && tint
-      ? h_flex().flex_1().min_w(0).px(6).overflow_hidden().children(spans.map((s) => this.span(s, tint)))
-      : div().flex_1().min_w(0).px(6).truncate().child(cell?.text ?? "");
+      ? this.words(spans, tint, wrap)
+      : wrap ? div().flex_1().min_w(0).px(6).whitespace_normal().child(cell?.text ?? "") : div().flex_1().min_w(0).px(6).truncate().child(cell?.text ?? "");
     return [
       shade(div().w(48).flex_none().px(6).text_right().text_color(hex(t, "dim")).child(cell ? String(cell.line) : "")),
       shade(text),
     ];
   }
 
-  private span(span: Span, tint: Hex): Element {
-    const el = div().flex_none().whitespace_nowrap().child(span.text);
-    return span.changed ? el.bg(`${tint}40` as Hex) : el;
+  private words(spans: Span[], tint: Tint, wrap: boolean): Element {
+    if (!wrap) return h_flex().flex_1().min_w(0).px(6).overflow_hidden().children(spans.map((s) => this.span(s, tint)));
+    return h_flex().flex_1().min_w(0).px(6).flex_wrap().overflow_hidden().children(wrapPieces(spans).map((s) => this.span(s, tint)));
   }
 
-  private line(row: DisplayRow, t: Colors): Element {
+  private span(span: Span, tint: Tint): Element {
+    const el = div().flex_none().whitespace_nowrap().child(span.text);
+    return span.changed ? el.bg(tint.word) : el;
+  }
+
+  private line(row: DisplayRow, t: Colors, tints: DiffTints, current: number | undefined, wrap: boolean): Element {
     if (row.kind === "hidden") {
       return div().w_full().h(ROW_HEIGHT).flex_none().px(12).bg(hex(t, "raised")).text_color(hex(t, "dim")).cursor_pointer().child(row.label);
     }
     const changed = row.kind === "change";
     const words = rowSpans(row);
-    const [leftNo, leftText] = this.cell(row.left, changed ? hex(t, "ansi1") : undefined, t, words?.left) as [Element, Element];
-    const [rightNo, rightText] = this.cell(row.right, changed ? hex(t, "ansi2") : undefined, t, words?.right) as [Element, Element];
-    return h_flex().w_full().h(ROW_HEIGHT).flex_none().child(leftNo).child(leftText).child(rightNo).child(rightText);
+    const [leftNo, leftText] = this.cell(row.left, changed ? tints.removed : undefined, tints.filler, t, wrap, words?.left) as [Element, Element];
+    const [rightNo, rightText] = this.cell(row.right, changed ? tints.added : undefined, tints.filler, t, wrap, words?.right) as [Element, Element];
+    const bar = wrap ? div().w(3).self_stretch().flex_none() : div().w(3).h_full().flex_none();
+    const marked = changed && row.block === current;
+    const columns = h_flex().w_full().flex_none();
+    return (wrap ? columns.min_h(ROW_HEIGHT).items_start() : columns.h(ROW_HEIGHT))
+      .child(marked ? bar.bg(hex(t, "accent")) : bar).child(leftNo).child(leftText).child(rightNo).child(rightText);
   }
 
   private keyOf(i: number): string {
@@ -185,13 +206,19 @@ export default class Diff extends View {
   override render(cx: Context) {
     this.follow(cx);
     const t = theme();
+    const tints = diffTints(t);
+    const current = currentBlock(this.shown, this.cursor);
+    const wrap = wrapsLines(shared(WRAP_KEY));
     const font = String(settings()["font_family"] ?? "JetBrains Mono");
     const body = this.message === undefined
       ? div().flex_1().min_h(0).relative()
-        .child(v_virtual_list("diff-rows", this.shown.length, ROW_HEIGHT, i => this.keyOf(i),
-          range => this.shown.slice(range.start, range.end).map(row => this.line(row, t)))
-          .on_item_click((key, cx) => this.expand(key, cx)).track_scroll(this.scroller!).size_full())
-        .child(Scrollbar.vertical("diff-rows").viewport_from_layout().absolute().inset_0())
+        .child(wrap
+          ? list("diff-rows-wrap", this.shown.length, i => this.keyOf(i), i => this.line(this.shown[i]!, t, tints, current, true))
+            .on_item_click((key, cx) => this.expand(key, cx)).track_scroll(this.scroller!).size_full()
+          : v_virtual_list("diff-rows", this.shown.length, ROW_HEIGHT, i => this.keyOf(i),
+            range => this.shown.slice(range.start, range.end).map(row => this.line(row, t, tints, current, false)))
+            .on_item_click((key, cx) => this.expand(key, cx)).track_scroll(this.scroller!).size_full())
+        .child(Scrollbar.vertical(wrap ? "diff-rows-wrap" : "diff-rows").viewport_from_layout().absolute().inset_0())
       : div().p(12).text_color(hex(t, "dim")).child(this.message);
     return v_flex().id("diff").size_full().min_h(0).overflow_hidden().bg(hex(t, "background")).text_color(hex(t, "foreground")).text_size(12).font_family(font)
       .child(this.header(t))

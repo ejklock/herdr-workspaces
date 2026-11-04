@@ -15,6 +15,13 @@ export function stops(shown: readonly DisplayRow[]): number[] {
   return starts;
 }
 
+/** The block of the change row at the cursor's stop; absent before the first step and when the cursor points at no stop. */
+export function currentBlock(shown: readonly DisplayRow[], cursor: number | undefined): number | undefined {
+  const start = cursor === undefined ? undefined : stops(shown)[cursor];
+  const row = start === undefined ? undefined : shown[start];
+  return row?.kind === "change" ? row.block : undefined;
+}
+
 /** The cursor after a step over `count` stops, without wrapping; from no cursor, both directions go to the first stop. */
 export function step(cursor: number | undefined, count: number, direction: "previous" | "next"): number | undefined {
   if (count === 0) return undefined;
@@ -52,4 +59,9 @@ export function editorTarget({ panes, claims, focused, path, on }: {
     if (shown) return { kind: "focus", pane: shown.pane };
   }
   return { kind: "split", pane: focused.pane };
+}
+
+/** The stored wrap setting read as the toggle state: on unless the owner turned it off, stored as the boolean false. */
+export function wrapsLines(value: unknown): boolean {
+  return value !== false;
 }

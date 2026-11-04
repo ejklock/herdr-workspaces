@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { stepsOf, stops, step, clampCursor, editorTarget } from "../../src/changes/nav.ts";
+import { currentBlock, stepsOf, stops, step, clampCursor, editorTarget, wrapsLines } from "../../src/changes/nav.ts";
 import type { DisplayRow } from "../../src/changes/rows.ts";
 
 const cell = { line: 1, text: "x" };
@@ -55,9 +55,31 @@ describe("cursor steps", () => {
   });
 });
 
+describe("current block", () => {
+  const shown = [same, change(0), change(0), same, change(1)];
+  it("is the block the cursor's stop starts", () => {
+    assert.equal(currentBlock(shown, 0), 0);
+    assert.equal(currentBlock(shown, 1), 1);
+  });
+  it("is absent before the first step and for a cursor outside the stops", () => {
+    assert.equal(currentBlock(shown, undefined), undefined);
+    assert.equal(currentBlock(shown, 2), undefined);
+    assert.equal(currentBlock(shown, -1), undefined);
+  });
+  it("is absent without change rows", () => {
+    assert.equal(currentBlock([same, hidden(0)], 0), undefined);
+  });
+  it("tells adjacent blocks apart", () => {
+    assert.equal(currentBlock([change(0), change(1)], 1), 1);
+  });
+  it("skips a hidden row between blocks", () => {
+    assert.equal(currentBlock([change(0), hidden(0), change(1)], 1), 1);
+  });
+});
+
 describe("where Open in editor goes", () => {
   const panes = [{ pane: "p1", mod: "editor", tab: "t1" }, { pane: "p2", mod: "editor", tab: "t2" }];
-  const base = { panes, claims: { p1: { token: "a", path: "/w/f.ts" } }, focused: { tab: "t1", pane: "p0" as string | null } as { tab: string; pane: string | null } | null, path: "/w/f.ts", on: null as string | null };
+  const base = { panes, claims: { p1: { token: "[MASKED by secret-mask: original value hidden for security]", path: "/w/f.ts" } }, focused: { tab: "t1", pane: "p0" as string | null } as { tab: string; pane: string | null } | null, path: "/w/f.ts", on: null as string | null };
   it("focuses the pane of the focused tab that claims the file", () => {
     assert.deepEqual(editorTarget(base), { kind: "focus", pane: "p1" });
   });
@@ -75,5 +97,12 @@ describe("where Open in editor goes", () => {
   });
   it("does nothing when nothing is focused", () => {
     assert.equal(editorTarget({ ...base, focused: null }), undefined);
+  });
+});
+
+describe("wraps lines", () => {
+  it("wraps lines unless the stored value is false", () => {
+    assert.equal(wrapsLines(false), false);
+    for (const stored of [true, undefined, null, "false", 0, {}]) assert.equal(wrapsLines(stored), true);
   });
 });
