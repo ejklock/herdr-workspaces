@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import {
   parseStore,
   storeHome,
+  OPTIONAL_WINDOW_SOURCES,
   storePaths,
   serializeStore,
   createWorkspace,
@@ -1112,13 +1113,42 @@ test("window shared: another workspace's active id is replaced, and Default is n
   assert.equal(windowShared(text, undefined, "/h")["workspaces.active"], null);
 });
 
-const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "mods/my-changes", "mods/my-diff", "themes", "keys.json", "settings.json"] };
+test("window shared: the main home's welcome state is carried and no other key of it is", () => {
+  const main = (v) => JSON.stringify({ "frame.welcomed": v, "sidebar.width": 300, layout: "workspaces" });
+  const own = { "sidebar.width": 268, layout: "main" };
+  const win = (extra) => JSON.stringify({ ...own, ...extra });
+  assert.equal(windowShared(win({}), "a", "/h", main("finished"))["frame.welcomed"], "finished");
+  assert.equal(windowShared(win({ "frame.welcomed": "started" }), "a", "/h", main("finished"))["frame.welcomed"], "finished");
+  const result = windowShared(win({}), "a", "/h", main("finished"));
+  assert.equal(result["sidebar.width"], 268);
+  assert.equal(result.layout, "Workspaces");
+  const bare = windowShared(null, "a", "/h", JSON.stringify({ "frame.welcomed": "finished", "sidebar.width": 300, "agents.sort": "x" }));
+  assert.equal(bare["frame.welcomed"], "finished");
+  assert.ok(!("sidebar.width" in bare));
+  assert.ok(!("agents.sort" in bare));
+});
+
+test("window shared: a main home without a usable welcome value leaves the window's own value", () => {
+  const kept = JSON.stringify({ "frame.welcomed": "started" });
+  for (const mainText of [null, undefined, "", "{not json", "[1,2]", "7", "{}", '{"frame.welcomed":null}']) {
+    assert.equal(windowShared(kept, "a", "/h", mainText)["frame.welcomed"], "started", String(mainText));
+    assert.ok(!("frame.welcomed" in windowShared(null, "a", "/h", mainText)), String(mainText));
+  }
+});
+
+test("window shared: the four window keys win over the main home's text", () => {
+  const main = JSON.stringify({ layout: "x", "workspaces.active": "z", "workspaces.home": "/z", "frame.welcomed": "finished" });
+  const result = windowShared(null, "a", "/h", main);
+  assert.deepEqual([result.layout, result["workspaces.active"], result["workspaces.home"], result["workspaces.focus-first"]], ["Workspaces", "a", "/h", true]);
+});
+
+const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "mods/my-changes", "mods/my-diff", "layouts/.state", "themes", "keys.json", "settings.json"] };
 const WIN = "/Users/x/.config/herdr-app-windows/acme";
 const targetsOf = (step) => [step.paths, step.to, step.path].flat().filter((p) => typeof p === "string");
 
 test("open plan: checks the window is not running, makes folders, mirrors, writes shared state, then launches", () => {
   const plan = openPlan(planInput);
-  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(9).fill("mirror"), "shared", "launch"]);
+  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(10).fill("mirror"), "shared", "launch"]);
   assert.equal(plan[0].socket, `${WIN}/herdr-app.sock`);
   assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => [s.from, s.to, s.dir]), [
     ["/Users/x/.config/herdr-app/mods/workspaces", `${WIN}/mods/workspaces`, true],
@@ -1127,6 +1157,7 @@ test("open plan: checks the window is not running, makes folders, mirrors, write
     ["/Users/x/.config/herdr-app/mods/my-changes", `${WIN}/mods/my-changes`, true],
     ["/Users/x/.config/herdr-app/mods/my-diff", `${WIN}/mods/my-diff`, true],
     ["/Users/x/.config/herdr-app/layouts/Workspaces.json", `${WIN}/layouts/Workspaces.json`, false],
+    ["/Users/x/.config/herdr-app/layouts/.state", `${WIN}/layouts/.state`, true],
     ["/Users/x/.config/herdr-app/keys.json", `${WIN}/keys.json`, false],
     ["/Users/x/.config/herdr-app/settings.json", `${WIN}/settings.json`, false],
     ["/Users/x/.config/herdr-app/themes", `${WIN}/themes`, true],
@@ -1146,6 +1177,13 @@ test("open plan: writes only inside the window home and never inside the main ho
 test("open plan: a source that is absent gets no step", () => {
   const plan = openPlan({ ...planInput, present: [] });
   assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => s.to), [`${WIN}/mods/workspaces`, `${WIN}/layouts/Workspaces.json`]);
+});
+
+test("open plan: the layout clicks folder is optional and only listed when present", () => {
+  assert.ok(OPTIONAL_WINDOW_SOURCES.includes("layouts/.state"));
+  const without = openPlan({ ...planInput, present: planInput.present.filter((p) => p !== "layouts/.state") });
+  assert.ok(!without.some((s) => s.to === `${WIN}/layouts/.state`));
+  assert.equal(without.filter((s) => s.kind === "mirror").length, 9);
 });
 
 test("open plan: the earlier lower-case layout file is removed before the mirror copies the new one", () => {
