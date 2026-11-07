@@ -3,6 +3,7 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
+* [0015 — SSH machine can be a workspace's core](0015-ssh-machine-can-be-a-workspace-s-core.md) - open
 
 ## Closed
 
