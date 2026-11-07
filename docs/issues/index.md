@@ -3,7 +3,6 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
-* [0015 — SSH machine can be a workspace's core](0015-ssh-machine-can-be-a-workspace-s-core.md) - open
 
 ## Closed
 
@@ -20,3 +19,4 @@
 * [0012 — Editor opens files of a workspace core as local files](0012-editor-opens-files-of-a-workspace-core-as-local-files.md) - closed
 * [0013 — New space in a workspace with no core opens Edit](0013-new-space-in-a-workspace-with-no-core-opens-edit.md) - closed
 * [0014 — Workspace window inherits the main window's look and welcome state](0014-workspace-window-inherits-the-main-window-s-look-and-welcome-state.md) - closed
+* [0015 — SSH machine can be a workspace's core](0015-ssh-machine-can-be-a-workspace-s-core.md) - closed
