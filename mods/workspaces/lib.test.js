@@ -564,7 +564,7 @@ test("menu: the workspace-move tab checks the space's current workspace", () => 
 });
 
 const machineEntry = (name, target = "sh -c", extra = {}) => ({ name, session: name, state: "connected", target, ...extra });
-const ownerMachines = [machineEntry("base-digital"), machineEntry("planet-argon"), machineEntry("inovatec"), machineEntry("abby-stg", "abby-stg", { state: "unreachable" })];
+const ownerMachines = [machineEntry("base-digital"), machineEntry("planet-argon"), machineEntry("inovatec"), machineEntry("abby-stg", "abby-stg", { state: "unreachable" }), machineEntry("dev-home", "dev-home")];
 const fields = (machine) => ({ name: "Acme", icon: "server", color: "ansi2", ...(machine === undefined ? {} : { machine }) });
 
 test("create with a core: a core no workspace names is stored", () => {
@@ -631,21 +631,34 @@ test("store machine: a hand-edited file with two workspaces on one core parses w
   assert.equal("machine" in store.workspaces[1], false);
 });
 
-test("dialog cores: creating offers every free sh -c machine by name, never an SSH one", () => {
-  assert.deepEqual(dialogCores(storeOf([]), ownerMachines, undefined).map((m) => m.name), ["base-digital", "inovatec", "planet-argon"]);
+test("dialog cores: creating offers every free attached machine by name, SSH ones included", () => {
+  const shown = dialogCores(storeOf([]), ownerMachines, undefined);
+  assert.deepEqual(shown.map((m) => m.name), ["abby-stg", "base-digital", "dev-home", "inovatec", "planet-argon"]);
+  assert.equal(shown[0].state, "unreachable");
 });
 
 test("dialog cores: a core another workspace names is not offered", () => {
-  assert.deepEqual(dialogCores(storeOf([base]), ownerMachines, undefined).map((m) => m.name), ["inovatec", "planet-argon"]);
+  assert.deepEqual(dialogCores(storeOf([base]), ownerMachines, undefined).map((m) => m.name), ["abby-stg", "dev-home", "inovatec", "planet-argon"]);
+});
+
+test("dialog cores: an SSH machine bound to a workspace is absent when creating another and listed when editing it", () => {
+  const home = { ...workspace("home", "Home"), machine: "dev-home" };
+  assert.equal(dialogCores(storeOf([home]), ownerMachines, undefined).some((m) => m.name === "dev-home"), false);
+  assert.deepEqual(dialogCores(storeOf([home]), ownerMachines, "home").find((m) => m.name === "dev-home"), { name: "dev-home", state: "connected" });
+});
+
+test("dialog cores: a temporary SSH machine is left out and an entry with no target is offered", () => {
+  const list = [machineEntry("tmp", "tmp", { temporary: true }), { name: "bare" }];
+  assert.deepEqual(dialogCores(storeOf([]), list, undefined), [{ name: "bare", state: "unknown" }]);
 });
 
 test("dialog cores: editing a workspace lists its own core with the free ones, sorted by name", () => {
-  assert.deepEqual(dialogCores(storeOf([base]), ownerMachines, "base").map((m) => m.name), ["base-digital", "inovatec", "planet-argon"]);
-  assert.deepEqual(dialogCores(storeOf([base, argon]), ownerMachines, "argon").map((m) => m.name), ["inovatec", "planet-argon"]);
+  assert.deepEqual(dialogCores(storeOf([base]), ownerMachines, "base").map((m) => m.name), ["abby-stg", "base-digital", "dev-home", "inovatec", "planet-argon"]);
+  assert.deepEqual(dialogCores(storeOf([base, argon]), ownerMachines, "argon").map((m) => m.name), ["abby-stg", "dev-home", "inovatec", "planet-argon"]);
 });
 
-test("dialog cores: a temporary machine is excluded and an unreachable sh -c one is listed with its state", () => {
-  const list = [machineEntry("tmp", "sh -c", { temporary: true }), machineEntry("down", "sh -c", { state: "unreachable" })];
+test("dialog cores: a temporary machine is excluded and an unreachable one of any target is listed with its state", () => {
+  const list = [machineEntry("tmp", "sh -c", { temporary: true }), machineEntry("down", "down", { state: "unreachable" })];
   assert.deepEqual(dialogCores(storeOf([]), list, undefined), [{ name: "down", state: "unreachable" }]);
 });
 
@@ -657,11 +670,11 @@ test("dialog cores: editing keeps the workspace's own core first as not attached
   ]);
 });
 
-test("dialog cores: the own core listed with another target or as temporary still shows once as not attached", () => {
-  for (const own of [machineEntry("base-digital", "ssh"), machineEntry("base-digital", "sh -c", { temporary: true })]) {
-    const shown = dialogCores(storeOf([base]), [own, machineEntry("inovatec")], "base");
-    assert.deepEqual(shown, [{ name: "base-digital", state: "not attached" }, { name: "inovatec", state: "connected" }]);
-  }
+test("dialog cores: the own core listed with an SSH target shows once with its listed state, listed as temporary it shows once as not attached", () => {
+  const listed = dialogCores(storeOf([base]), [machineEntry("base-digital", "ssh", { state: "unreachable" }), machineEntry("inovatec")], "base");
+  assert.deepEqual(listed, [{ name: "base-digital", state: "unreachable" }, { name: "inovatec", state: "connected" }]);
+  const temp = dialogCores(storeOf([base]), [machineEntry("base-digital", "sh -c", { temporary: true }), machineEntry("inovatec")], "base");
+  assert.deepEqual(temp, [{ name: "base-digital", state: "not attached" }, { name: "inovatec", state: "connected" }]);
 });
 
 test("dialog cores: creating or editing another workspace never adds a core missing from the list", () => {

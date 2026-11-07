@@ -95,3 +95,9 @@ The owner chose on 2026-11-02 to open a workspace in its own Herdr window, which
 - Herdr runs one window per app home. A workspace window is therefore a second instance of the same `Herdr.app`, started with its own app home under `~/.config/herdr-app-windows/<id>`. That home shares the main home's workspace store.
 - This narrows "distinct Dock or Cmd+Tab entries per workspace" out of scope. While a workspace window is open, Herdr can show a second entry, with Herdr's own icon and name.
 - Still out of scope: a patched or copied `Herdr.app`, or an icon or name of its own per workspace.
+
+## Amendment 3 — 2026-11-06: any attached machine can be a workspace's core
+
+- The core named in Amendment 1 may be any attached machine that is not temporary, an SSH one included ([issue 0015](/issues/0015-ssh-machine-can-be-a-workspace-s-core.md)).
+- A bound machine loses its header and "Move to workspace…" like a local core.
+- The editor still treats only `sh -c` machines as this computer.

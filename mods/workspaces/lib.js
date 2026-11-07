@@ -301,19 +301,19 @@ export async function settledStore(store, read, path) {
   return (await loadStore(read, path)).store;
 }
 
-const isSh = (m) => isRecord(m) && isText(m.name) && m.target === "sh -c" && !m.temporary;
+const isAttached = (m) => isRecord(m) && isText(m.name) && !m.temporary;
 
 /**
- * The cores the dialog offers, from the `machines` of `hc machine ls --json`: attached `sh -c`
- * machines no other workspace names (the edited one, `ownId`, keeps its own), sorted by name,
- * each with its connection state ("unknown" when the list gives no text one). The edited workspace's
+ * The cores the dialog offers, from the `machines` of `hc machine ls --json`: attached machines of any
+ * target, SSH ones included, that no other workspace names (the edited one, `ownId`, keeps its own),
+ * sorted by name, each with its connection state ("unknown" when the list gives no text one). The edited workspace's
  * own core comes first as "not attached" when the list does not offer it, so the binding stays visible.
  * Anything malformed gives an empty list.
  */
 export function dialogCores(store, machines, ownId) {
   const taken = new Set(store.workspaces.filter((w) => w.id !== ownId).map((w) => w.machine));
   const cores = (Array.isArray(machines) ? machines : [])
-    .filter((m) => isSh(m) && !taken.has(m.name))
+    .filter((m) => isAttached(m) && !taken.has(m.name))
     .map((m) => ({ name: m.name, state: isText(m.state) ? m.state : "unknown" }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const own = store.workspaces.find((w) => w.id === ownId)?.machine;
