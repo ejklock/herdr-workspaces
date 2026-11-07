@@ -2,7 +2,7 @@
 type: Issue
 title: SSH machine can be a workspace's core
 description: The dialog's Core row offers every attached machine, SSH included, so a remote machine such as dev-home can be a workspace's core.
-status: open
+status: closed
 timestamp: 2026-11-07T02:27:37Z
 ---
 
@@ -33,5 +33,9 @@ The owner chose option A on 2026-11-06:
 
 ### Acceptance
 
-- [ ] The dialog's Core row lists `dev-home` (SSH, connected) and `abby-stg` (SSH, unreachable, with its state), and still leaves out temporary machines and the cores of other workspaces (`npm test`).
+- [x] The dialog's Core row lists `dev-home` (SSH, connected) and `abby-stg` (SSH, unreachable, with its state), and still leaves out temporary machines and the cores of other workspaces (`npm test`).
 - [ ] With "Dev Home" bound to `dev-home`, the sidebar lists the `dev-home` spaces with no header, and "+" makes a space on `dev-home`. Verified in the owner's window after `bin/install`.
+
+### Outcome
+
+Shipped in #12 (357ae61). The dialog's Core row offers every attached machine that is not temporary, SSH included. `npm test` is green (280 + 553). Planted faults fail by assertion: putting back the `sh -c` check, dropping the temporary check, dropping the taken filter, and requiring a target. Not verified at release: in the owner's app, binding "Dev Home" to `dev-home` and making a space there with "+"; it needs `bin/install ~/.config/herdr-app`, which was not run.
