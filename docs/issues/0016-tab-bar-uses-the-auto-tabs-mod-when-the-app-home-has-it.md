@@ -2,7 +2,7 @@
 type: Issue
 title: Tab bar uses the auto-tabs mod when the app home has it
 description: bin/install points the layout's tab bar at mods/auto-tabs when the app home has it, else the shipped tabs; workspace windows mirror it.
-status: open
+status: closed
 timestamp: 2026-11-09T22:42:31Z
 ---
 
@@ -37,3 +37,9 @@ The owner chose "se-configs + workspaces" on 2026-11-09 (se-configs issue 0162):
 
 - S1: a workspace window mirrors `mods/auto-tabs` when the main home has it | files: mods/workspaces/lib.js, mods/workspaces/lib.test.js, README.md, RECIPE.md | after: none
 - S2: `bin/install` points the tab bar at `auto-tabs` when `<app home>/mods/auto-tabs` is a folder, else `tabs`, refusing a source layout without exactly one `"mod": "tabs"` | files: bin/install, bin/install.test.js, README.md, RECIPE.md | after: S1 (both edit README.md and RECIPE.md, so they run one after the other in the main checkout)
+
+### Outcome
+
+Shipped in #14 (d0aa96b). `bin/install` points the tab bar at `auto-tabs` when `<app home>/mods/auto-tabs` is a folder and keeps `tabs` otherwise, independent of `--without editor`. A source layout without exactly one `"mod": "tabs"` is refused before any write. Workspace windows mirror `mods/auto-tabs` as an optional source. `npm test` is green (290 + 553). Planted faults fail by assertion: `-d` changed to `-e` or `-L`, the anchor check removed, `auto-tabs` always chosen, the choice tied to the editor flag, the check moved after the first write, and the window entry removed, made required or made a file. An install into a scratch home holding `mods/auto-tabs` wrote `"mod": "auto-tabs"`, and the window plan mirrors it. Not verified at release: the tabs renaming themselves in the owner's app, which needs se-configs to install `auto-tabs` and then run `bin/install ~/.config/herdr-app`.
+
+Found in review and tracked apart, older than this issue: a workspace window probes the optional mods with `test -e`, so a regular file at an optional mod path would make opening a window fail.

@@ -3,7 +3,6 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
-* [0016 — Tab bar uses the auto-tabs mod when the app home has it](0016-tab-bar-uses-the-auto-tabs-mod-when-the-app-home-has-it.md) - open
 
 ## Closed
 
@@ -21,3 +20,4 @@
 * [0013 — New space in a workspace with no core opens Edit](0013-new-space-in-a-workspace-with-no-core-opens-edit.md) - closed
 * [0014 — Workspace window inherits the main window's look and welcome state](0014-workspace-window-inherits-the-main-window-s-look-and-welcome-state.md) - closed
 * [0015 — SSH machine can be a workspace's core](0015-ssh-machine-can-be-a-workspace-s-core.md) - closed
+* [0016 — Tab bar uses the auto-tabs mod when the app home has it](0016-tab-bar-uses-the-auto-tabs-mod-when-the-app-home-has-it.md) - closed
