@@ -150,6 +150,121 @@ test("the installed layout swaps only the Files and Changes mods to my-files and
   assert.match(installedLayout(home), /"active": "files"/);
 });
 
+function makeAutoTabs(home) {
+  const dir = join(home, "mods", "auto-tabs");
+  mkdirSync(join(dir, "lib"), { recursive: true });
+  writeFileSync(join(dir, "main.js"), "export {};\n");
+  writeFileSync(join(dir, "lib", "x.js"), "x");
+  writeFileSync(join(dir, ".installed-from"), "herdr-auto-tabs");
+  return dir;
+}
+
+function snapshot(dir) {
+  return tree(dir).map(f => [f, readFileSync(join(dir, f), "utf8")]);
+}
+
+const tabsDiff = home => lineDiff(repoLayout, installedLayout(home)).map(([from, to]) => [from.trim(), to.trim()]);
+const tabsSwap = ['"mod": "tabs"', '"mod": "auto-tabs"'];
+
+test("the tab bar uses auto-tabs when the app home has a mods/auto-tabs folder and nothing else in the layout changes", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  assert.equal(install(home, { installScript: stub.script }).status, 0);
+  const defaultLayout = installedLayout(home);
+  const folder = makeAutoTabs(home);
+  const before = snapshot(folder);
+  const run = install(home, { installScript: stub.script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(lineDiff(defaultLayout, installedLayout(home)).map(([from, to]) => [from.trim(), to.trim()]), [tabsSwap]);
+  assert.match(run.stdout, /Tabs mod: auto-tabs/);
+  assert.deepEqual(snapshot(folder), before);
+});
+
+test("the tab bar uses auto-tabs with --without editor and the side panel keeps the shipped mods", () => {
+  const home = freshHome();
+  const folder = makeAutoTabs(home);
+  const before = snapshot(folder);
+  const run = install(home, { args: ["--without", "editor"], installScript: stubRepo().script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(tabsDiff(home), [tabsSwap]);
+  assert.match(run.stdout, /Tabs mod: auto-tabs/);
+  assert.deepEqual(snapshot(folder), before);
+});
+
+test("the tab bar keeps the shipped tabs mod when the app home has no mods/auto-tabs, with and without the editor", () => {
+  for (const args of [[], ["--without", "editor"]]) {
+    const home = freshHome();
+    const run = install(home, { args, installScript: stubRepo().script });
+    assert.equal(run.status, 0, run.stderr);
+    assert.ok(!installedLayout(home).includes("auto-tabs"));
+    assert.match(installedLayout(home), /"mod": "tabs"/);
+    assert.match(run.stdout, /Tabs mod: tabs/);
+  }
+});
+
+test("the tab bar uses auto-tabs when mods/auto-tabs is a link to a folder outside the app home", () => {
+  const home = freshHome();
+  const outside = makeAutoTabs(scratchDir("install-outside-"));
+  mkdirSync(join(home, "mods"));
+  symlinkSync(outside, join(home, "mods", "auto-tabs"));
+  const before = snapshot(outside);
+  const run = install(home, { args: ["--without", "editor"], installScript: stubRepo().script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(tabsDiff(home), [tabsSwap]);
+  assert.deepEqual(snapshot(outside), before);
+});
+
+test("the tab bar keeps the shipped tabs mod when mods/auto-tabs is a regular file", () => {
+  const home = freshHome();
+  mkdirSync(join(home, "mods"));
+  writeFileSync(join(home, "mods", "auto-tabs"), "not a folder");
+  const run = install(home, { args: ["--without", "editor"], installScript: stubRepo().script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(tabsDiff(home), []);
+  assert.equal(readFileSync(join(home, "mods", "auto-tabs"), "utf8"), "not a folder");
+});
+
+test("the tab bar goes back to the shipped tabs mod on a rerun after the auto-tabs folder is removed", () => {
+  const home = freshHome();
+  const stub = stubRepo();
+  const folder = makeAutoTabs(home);
+  assert.equal(install(home, { args: ["--without", "editor"], installScript: stub.script }).status, 0);
+  assert.match(installedLayout(home), /"mod": "auto-tabs"/);
+  rmSync(folder, { recursive: true });
+  const run = install(home, { args: ["--without", "editor"], installScript: stub.script });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(tabsDiff(home), []);
+  assert.match(run.stdout, /Tabs mod: tabs/);
+});
+
+test("a source layout naming the Tabs mod twice is refused before anything is written", () => {
+  const home = freshHome();
+  const run = install(home, { installScript: stubRepo({ layoutText: repoLayout + '"mod": "tabs"\n' }).script });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /"mod": "tabs" exactly once/);
+  assertNothingWritten(home);
+});
+
+test("a source layout without the Tabs mod is refused before anything is written", () => {
+  const home = freshHome();
+  const run = install(home, { installScript: stubRepo({ layoutText: repoLayout.replace('"mod": "tabs"', '"mod": "other"') }).script });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /"mod": "tabs" exactly once/);
+  assertNothingWritten(home);
+});
+
+test("a source layout without exactly one Tabs mod leaves a home holding only an auto-tabs folder unchanged", () => {
+  for (const layoutText of [repoLayout + '"mod": "tabs"\n', repoLayout.replace('"mod": "tabs"', '"mod": "other"')]) {
+    const home = freshHome();
+    makeAutoTabs(home);
+    const before = snapshot(home);
+    const run = install(home, { installScript: stubRepo({ layoutText }).script });
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /"mod": "tabs" exactly once/);
+    assert.deepEqual(snapshot(home), before);
+  }
+});
+
 test("rerunning updates a copy in place and removes a file gone from the source", () => {
   const home = freshHome();
   const stub = stubRepo();
