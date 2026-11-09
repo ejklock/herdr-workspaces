@@ -1155,13 +1155,13 @@ test("window shared: the four window keys win over the main home's text", () => 
   assert.deepEqual([result.layout, result["workspaces.active"], result["workspaces.home"], result["workspaces.focus-first"]], ["Workspaces", "a", "/h", true]);
 });
 
-const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "mods/my-changes", "mods/my-diff", "layouts/.state", "themes", "keys.json", "settings.json"] };
+const planInput = { userHome: "/Users/x", mainHome: "/Users/x/.config/herdr-app", id: "acme", appHome: "/Users/x/.config/herdr-app", present: ["mods/editor", "mods/my-files", "mods/my-changes", "mods/my-diff", "mods/auto-tabs", "layouts/.state", "themes", "keys.json", "settings.json"] };
 const WIN = "/Users/x/.config/herdr-app-windows/acme";
 const targetsOf = (step) => [step.paths, step.to, step.path].flat().filter((p) => typeof p === "string");
 
 test("open plan: checks the window is not running, makes folders, mirrors, writes shared state, then launches", () => {
   const plan = openPlan(planInput);
-  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(10).fill("mirror"), "shared", "launch"]);
+  assert.deepEqual(plan.map((s) => s.kind), ["running", "folders", "remove", ...Array(11).fill("mirror"), "shared", "launch"]);
   assert.equal(plan[0].socket, `${WIN}/herdr-app.sock`);
   assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => [s.from, s.to, s.dir]), [
     ["/Users/x/.config/herdr-app/mods/workspaces", `${WIN}/mods/workspaces`, true],
@@ -1169,6 +1169,7 @@ test("open plan: checks the window is not running, makes folders, mirrors, write
     ["/Users/x/.config/herdr-app/mods/my-files", `${WIN}/mods/my-files`, true],
     ["/Users/x/.config/herdr-app/mods/my-changes", `${WIN}/mods/my-changes`, true],
     ["/Users/x/.config/herdr-app/mods/my-diff", `${WIN}/mods/my-diff`, true],
+    ["/Users/x/.config/herdr-app/mods/auto-tabs", `${WIN}/mods/auto-tabs`, true],
     ["/Users/x/.config/herdr-app/layouts/Workspaces.json", `${WIN}/layouts/Workspaces.json`, false],
     ["/Users/x/.config/herdr-app/layouts/.state", `${WIN}/layouts/.state`, true],
     ["/Users/x/.config/herdr-app/keys.json", `${WIN}/keys.json`, false],
@@ -1192,11 +1193,20 @@ test("open plan: a source that is absent gets no step", () => {
   assert.deepEqual(plan.filter((s) => s.kind === "mirror").map((s) => s.to), [`${WIN}/mods/workspaces`, `${WIN}/layouts/Workspaces.json`]);
 });
 
+test("open plan: the auto-tabs mod is mirrored as a folder only when present, and probed as optional", () => {
+  assert.ok(OPTIONAL_WINDOW_SOURCES.includes("mods/auto-tabs"));
+  assert.ok(!OPTIONAL_WINDOW_SOURCES.includes("mods/workspaces"));
+  assert.ok(!OPTIONAL_WINDOW_SOURCES.includes("layouts/Workspaces.json"));
+  const without = openPlan({ ...planInput, present: planInput.present.filter((p) => p !== "mods/auto-tabs") });
+  assert.ok(!without.some((s) => s.to === `${WIN}/mods/auto-tabs`));
+  assert.equal(without.filter((s) => s.kind === "mirror").length, 10);
+});
+
 test("open plan: the layout clicks folder is optional and only listed when present", () => {
   assert.ok(OPTIONAL_WINDOW_SOURCES.includes("layouts/.state"));
   const without = openPlan({ ...planInput, present: planInput.present.filter((p) => p !== "layouts/.state") });
   assert.ok(!without.some((s) => s.to === `${WIN}/layouts/.state`));
-  assert.equal(without.filter((s) => s.kind === "mirror").length, 9);
+  assert.equal(without.filter((s) => s.kind === "mirror").length, 10);
 });
 
 test("open plan: the earlier lower-case layout file is removed before the mirror copies the new one", () => {

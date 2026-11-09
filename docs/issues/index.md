@@ -3,6 +3,7 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
+* [0016 — Tab bar uses the auto-tabs mod when the app home has it](0016-tab-bar-uses-the-auto-tabs-mod-when-the-app-home-has-it.md) - open
 
 ## Closed
 

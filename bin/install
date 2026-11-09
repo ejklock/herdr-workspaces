@@ -88,12 +88,13 @@ check_layout() {
   check_layout_file "$layout_target" && check_layout_file "$earlier_layout"
 }
 
-# The side-panel Files and Changes blocks each name one mod and Herdr has no fallback, so the choice is made at install.
+# The side-panel Files and Changes blocks and the tab bar each name one mod and Herdr has no fallback, so the choice is made at install.
 # Only the block's own "mod" value is rewritten; the anchor must match exactly once, and an unreadable
 # source counts as no match.
 source_layout="$repo/layouts/Workspaces.json"
 anchor='"mod": "files"'
 changes_anchor='"mod": "changes"'
+tabs_anchor='"mod": "tabs"'
 
 check_one_anchor() {
   count=$(grep -cF "$1" "$source_layout" 2>/dev/null || true)
@@ -103,7 +104,7 @@ check_one_anchor() {
 }
 
 check_anchor() {
-  check_one_anchor "$anchor" && check_one_anchor "$changes_anchor"
+  check_one_anchor "$anchor" && check_one_anchor "$changes_anchor" && check_one_anchor "$tabs_anchor"
 }
 
 wanted() {
@@ -146,13 +147,15 @@ copy_layout() {
     files_mod=my-files
     changes_mod=my-changes
   fi
+  tabs_mod=tabs
+  if [ -d "$home/mods/auto-tabs" ]; then tabs_mod=auto-tabs; fi
   # The layout is written in place, like the mod files, so Herdr's watcher sees the change; only a link is
   # removed first. The earlier lower-case file is removed only when the folder lists that exact name: on a
   # volume that ignores case, a plain rm of it would delete the current file too.
   unlink_if_link "$layout_target"
   if ls -1 "$home/layouts" 2>/dev/null | grep -qx 'workspaces.json'; then rm -f "$earlier_layout"; fi
-  sed -e "s/\"mod\": \"files\"/\"mod\": \"$files_mod\"/" -e "s/\"mod\": \"changes\"/\"mod\": \"$changes_mod\"/" "$source_layout" > "$layout_target"
-  echo "copied $layout_target (Files mod: $files_mod, Changes mod: $changes_mod)"
+  sed -e "s/\"mod\": \"files\"/\"mod\": \"$files_mod\"/" -e "s/\"mod\": \"changes\"/\"mod\": \"$changes_mod\"/" -e "s/\"mod\": \"tabs\"/\"mod\": \"$tabs_mod\"/" "$source_layout" > "$layout_target"
+  echo "copied $layout_target (Files mod: $files_mod, Changes mod: $changes_mod, Tabs mod: $tabs_mod)"
 }
 
 # The plugin's installer refuses a hostile target before it writes, and this runs before any workspaces
