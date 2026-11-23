@@ -40,10 +40,17 @@ Recommendation: A, with the suggestion rule of B as the default choice in "Move 
 
 ### Decision
 
-Waiting for the owner's choice.
+The owner chose A on 2026-11-23, with a change: Default lists every terminal that has no `herdr.space`, from every core, including the cores bound to a workspace. This gives one place to see every lost terminal and move it.
+
+- Default shows an "Unplaced" section with the live terminals that have no `herdr.space`, from all machines. A terminal on another machine shows that machine's name.
+- A workspace view shows only the unplaced terminals of its own core. This is a cheap choice, made here: the same terminal can appear in Default and in its workspace.
+- "Move to space…" offers only spaces on the terminal's own machine. The first suggestion is the parent's space, then the space whose `folder` is the longest prefix of the terminal's `cwd`. Choosing one sets the label and runs `terminal.keep`.
+- Nothing is labelled without a click. B (automatic placement) stays out until A shows that the suggestions are right.
+- This widens "Default is the local core's spaces" (constitution, Amendment 1) only for this section. Spaces stay as they are.
 
 ### Acceptance
 
-- [ ] A live terminal with no `herdr.space` on a core that the active workspace (or Default) shows appears in the sidebar.
-- [ ] Placing it sets `herdr.space` to a space on the terminal's own machine, and the terminal then shows under that space with its sub-agents.
-- [ ] No space on another machine is ever offered.
+- [ ] Default lists every live terminal with no `herdr.space`, from every core; a workspace view lists those of its own core.
+- [ ] "Move to space…" offers only spaces on the terminal's own machine, parent's space first, then the longest `folder` prefix of its `cwd`.
+- [ ] Choosing a space sets `herdr.space` and the terminal then shows under that space with its sub-agents; it leaves the Unplaced section.
+- [ ] The section is absent when nothing is unplaced.
