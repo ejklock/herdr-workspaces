@@ -3,6 +3,8 @@
 ## Open
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
+* [0017 — Terminals with no space are invisible in the sidebar](0017-terminals-with-no-space-are-invisible-in-the-sidebar.md) - open
+* [0018 — Install test needs herdr.d.ts in the real app home](0018-install-test-needs-herdr-d-ts-in-the-real-app-home.md) - open
 
 ## Closed
 

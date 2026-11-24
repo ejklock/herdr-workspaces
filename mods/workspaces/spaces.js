@@ -6,8 +6,8 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify, nextCommand } from "herdr";
-import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceStep, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
+import { spaces, machines, terminals, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify, nextCommand } from "herdr";
+import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, machineOf, unplacedTerminals, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceStep, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
 import { followWorkspaceStore, openWorkspaceDialog } from "./switcher.js";
 
 function find(node, id) {
@@ -240,6 +240,10 @@ export default class Spaces extends View {
     openOverlay({ mod: "workspaces", kind: "popup", width: 200, height: 300, props: { role: "menu", tab: "space", target: { id: w.id, groupSpace } } });
   }
 
+  placeMenu(terminal) {
+    openOverlay({ mod: "workspaces", kind: "popup", width: 220, height: 300, props: { role: "menu", tab: "place", target: { terminal: terminal.address } } });
+  }
+
   groupMenu(g) {
     openOverlay({ mod: "workspaces", kind: "popup", width: 200, height: 120, props: { role: "menu", tab: "group", target: { id: g.id } } });
   }
@@ -459,7 +463,31 @@ export default class Spaces extends View {
         .child(div().id("space-new").p(4).rounded(5).hover(s => s.bg(t.hover).text_color(t.foreground)).on_click(() => void this.newSpace()).child("+")))
       .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
-        .children([...this.coreRow(t, collapsed), ...this.grouped(t, collapsed)]));
+        .children([...this.coreRow(t, collapsed), ...this.grouped(t, collapsed), ...this.unplaced(t, collapsed)]));
+  }
+
+  // The live terminals no space holds, under a header with their count; choosing one opens the menu of spaces to place it in. Not drawn in the narrow rail.
+  unplaced(t, collapsed) {
+    const list = collapsed ? [] : unplacedTerminals(this.store, shared("workspaces.active"), terminals(), spaces(), machines());
+    if (list.length === 0) return [];
+    return [
+      h_flex().id("unplaced-header").h(26).flex_none().px(8).gap(7).items_center().text_size(11).text_color(t.dim)
+        .child(div().flex_1().truncate().child("Unplaced"))
+        .child(div().flex_none().child(String(list.length))),
+      ...list.map((term) => this.unplacedRow(term, t)),
+    ];
+  }
+
+  unplacedRow(term, t) {
+    const machine = machineOf(term.address);
+    return h_flex().id(`unplaced-${term.address}`).h(28).flex_none().px(8).gap(9).items_center().rounded(6).text_size(12.5)
+      .cursor_pointer().hover(s => s.bg(t.hover))
+      .on_mouse_up("left", () => this.placeMenu(term))
+      .on_mouse_down("right", () => this.placeMenu(term))
+      .child(svg("mods/workspace-chrome/terminal.svg").size(13).flex_none().text_color(t.dim))
+      .child(div().flex_shrink(0).max_w(130).truncate().text_color(t.foreground).child(term.name || term.program?.name || term.address))
+      .child(div().flex_1().truncate().text_color(t.dim).child(base(term.cwd ?? "")))
+      .when(machine !== null, el => el.child(div().flex_none().text_color(t.dim).child(machine)));
   }
 
   // One row ahead of the spaces while the active workspace has no core: it opens that workspace in the edit dialog.

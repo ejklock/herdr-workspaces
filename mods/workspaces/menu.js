@@ -1,12 +1,12 @@
 // Context menus (Herdr's items). Opened as a popup with
-// props { tab: "pane" | "tab" | "space" | "workspace-move" | "group-move" | "group" | "global", target }.
+// props { tab: "pane" | "tab" | "space" | "place" | "workspace-move" | "group-move" | "group" | "global", target }.
 // ↑/↓ move, Enter runs, Esc closes. An item is [label, command, args];
 // a command "worktree" opens the worktree dialog instead.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { run, props, closeOverlay, openOverlay, theme, keys, shared, terminals, spaces, panes, exec, notify, appHome, readTextFile, writeTextFile } from "herdr";
-import { assignSpace, deleteGroup, moveToGroup, newSpaceStep, settledStore, storeHome, storePaths, updateStore } from "./lib.js";
+import { run, props, closeOverlay, openOverlay, theme, keys, shared, terminals, spaces, panes, exec, hc, notify, appHome, readTextFile, writeTextFile } from "herdr";
+import { assignSpace, deleteGroup, moveToGroup, newSpaceStep, placeLabelArgs, settledStore, storeHome, storePaths, updateStore } from "./lib.js";
 import { menuItems, menuIcon } from "./menu-items.js";
 import { followWorkspaceStore, iconPath, openWorkspaceDialog, workspaceColor } from "./switcher.js";
 
@@ -110,9 +110,28 @@ export default class Menu extends View {
     else run("space.new", step.create);
   }
 
+  // Labels a terminal with the space's id so Herdr places it there, then shows that space; a failure is shown as a toast and selects nothing. The menu stays open until this settles, because Herdr cancels an overlay's unfinished tasks once it closes.
+  async place({ terminal, space }) {
+    const found = terminals().find((t) => t.address === terminal);
+    const target = spaces().find((s) => s.id === space);
+    const args = found && target && placeLabelArgs(found, target);
+    const title = "Could not place the terminal";
+    if (!args) {
+      notify({ title, body: "The terminal or the space is gone.", level: "error" });
+      return;
+    }
+    try {
+      const r = await hc(args);
+      if (r.code === 0) run("space.select", { id: space });
+      else notify({ title, body: r.stderr.trim() || `hc exited ${r.code}`, level: "error" });
+    } catch (e) {
+      notify({ title, body: e.message ?? String(e), level: "error" });
+    }
+  }
+
   items() {
     const p = props();
-    return menuItems(p, this.git, this.store, shared("workspaces.active"), p?.tab === "pane" ? terminals() : [], spaces());
+    return menuItems(p, this.git, this.store, shared("workspaces.active"), p?.tab === "pane" || p?.tab === "place" ? terminals() : [], spaces());
   }
 
   choose(i, cx) {
@@ -121,6 +140,14 @@ export default class Menu extends View {
     const overlay = props()?.overlay;
     if (it[1] === "space.new") {
       void this.newSpace(overlay);
+      return;
+    }
+    if (it[1] === "workspaces.place") {
+      void this.place(it[2]).finally(() => closeOverlay(overlay));
+      return;
+    }
+    if (it[1] === "workspaces.none") {
+      closeOverlay(overlay);
       return;
     }
     const write = WRITES[it[1]];
@@ -162,7 +189,7 @@ export default class Menu extends View {
       .track_focus(this.handle)
       .w_full()
       .min_h(0)
-      .when(props()?.tab === "workspace-move" || props()?.tab === "group-move", (el) => el.overflow_y_scroll())
+      .when(["place", "workspace-move", "group-move"].includes(props()?.tab), (el) => el.overflow_y_scroll())
       .p(5)
       .bg(t.popover)
       .text_size(12.8)
