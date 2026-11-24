@@ -44,7 +44,7 @@ The owner chose A on 2026-11-23, with a change: Default lists every terminal tha
 
 - Default shows an "Unplaced" section with the live terminals that have no `herdr.space`, from all machines. A terminal on another machine shows that machine's name.
 - A workspace view shows only the unplaced terminals of its own core. This is a cheap choice, made here: the same terminal can appear in Default and in its workspace.
-- "Move to space…" offers only spaces on the terminal's own machine. The first suggestion is the parent's space, then the space whose `folder` is the longest prefix of the terminal's `cwd`. Choosing one sets the label and runs `terminal.keep`.
+- "Move to space…" offers only spaces on the terminal's own machine. The first suggestion is the parent's space, then the space whose `folder` is the longest prefix of the terminal's `cwd`. Choosing one sets the label and selects that space. `terminal.keep` is left out because the label alone was enough for the app to adopt the terminal (cheap choice, made during implementation).
 - Nothing is labelled without a click. B (automatic placement) stays out until A shows that the suggestions are right.
 - This widens "Default is the local core's spaces" (constitution, Amendment 1) only for this section. Spaces stay as they are.
 

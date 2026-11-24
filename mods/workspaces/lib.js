@@ -259,6 +259,65 @@ export function visibleAgents(store, activeId, agents, spaces) {
   return agents.filter((a) => shown.has(a.space));
 }
 
+/** The machine an address belongs to: the part before "/", or null for this computer. */
+export const machineOf = (address) => (address.includes("/") ? address.slice(0, address.indexOf("/")) : null);
+const ownId = (machine, label) => (machine === null ? label : `${machine}/${label}`);
+const spaceLabel = (terminal) => {
+  const label = terminal.labels?.["herdr.space"];
+  return typeof label === "string" ? label : undefined;
+};
+
+/** Whether no listed space holds the terminal: it has no space label, or one naming no space of its own machine, which is stale once that machine's layout is ready. */
+function isUnheld(terminal, spaces, machines) {
+  const machine = machineOf(terminal.address);
+  const label = spaceLabel(terminal);
+  if (label === undefined) return true;
+  const ids = spaces.map((s) => s.id);
+  if (ids.includes(ownId(machine, label))) return false;
+  return machines.some((m) => (m.name ?? null) === machine && m.layout === "ready");
+}
+
+/**
+ * The live terminals no space holds, in `terminals` order: Default covers every core, a workspace its own
+ * core only (none when it names no core). A label naming no listed space counts only once its machine's layout is ready.
+ */
+export function unplacedTerminals(store, activeId, terminals, spaces, machines) {
+  const active = activeWorkspace(store, activeId);
+  return terminals.filter((t) => {
+    if (t.state !== "live") return false;
+    if (active && (!active.machine || machineOf(t.address) !== active.machine)) return false;
+    return isUnheld(t, spaces, machines);
+  });
+}
+
+const trimSlashes = (path) => path.replace(/\/+$/, "");
+const underFolder = (cwd, folder) => folder !== "" && (cwd === folder || cwd.startsWith(`${folder}/`));
+
+/**
+ * The spaces a terminal can be placed in, those on its own machine: its parent's space first, then spaces whose
+ * folder holds its cwd (longest folder first), then the rest in `spaces` order.
+ */
+export function placeOptions(terminal, terminals, spaces) {
+  const machine = machineOf(terminal.address);
+  const own = spaces.filter((s) => (s.machine ?? null) === machine);
+  const parent = terminals.find((t) => t.address === terminal.parent);
+  const parentLabel = parent && machineOf(parent.address) === machine ? spaceLabel(parent) : undefined;
+  const first = own.filter((s) => parentLabel !== undefined && s.id === ownId(machine, parentLabel));
+  const cwd = trimSlashes(terminal.cwd ?? "");
+  const matching = own
+    .filter((s) => underFolder(cwd, trimSlashes(s.folder ?? "")))
+    .sort((a, b) => trimSlashes(b.folder).length - trimSlashes(a.folder).length);
+  return [...new Set([...first, ...matching, ...own])];
+}
+
+/** The `hc` arguments that place a terminal in a space by label, or undefined when the space is on another machine. */
+export function placeLabelArgs(terminal, space) {
+  const machine = machineOf(terminal.address);
+  if ((space.machine ?? null) !== machine) return undefined;
+  const prefix = machine === null ? "" : `${machine}/`;
+  return ["label", terminal.address, `herdr.space=${space.id.slice(prefix.length)}`];
+}
+
 /** The machine headers the sidebar draws: other machines that hold a listed space, sorted; never a core. */
 export function sidebarMachines(store, visible) {
   const cores = coreNames(store);

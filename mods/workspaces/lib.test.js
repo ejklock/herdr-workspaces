@@ -48,6 +48,9 @@ import {
   readStoreOnce,
   ensureStoreDir,
   runOpen,
+  unplacedTerminals,
+  placeOptions,
+  placeLabelArgs,
 } from "./lib.js";
 import { menuItems, menuIcon } from "./menu-items.js";
 
@@ -1446,4 +1449,122 @@ test("the mod's sources hold no masked placeholder in place of their own text", 
   const placeholder = "MASKED by " + "secret-mask";
   const tainted = readdirSync(dir).filter((name) => name.endsWith(".js") && readFileSync(new URL(name, dir), "utf8").includes(placeholder));
   assert.deepEqual(tainted, []);
+});
+
+const term = (address, labels, extra = {}) => ({ address, state: "live", labels, ...extra });
+const hostSpace = (id, machine = null, folder = "") => ({ id, machine, folder, name: id });
+const ready = (...names) => names.map((name) => ({ name, layout: "ready" }));
+const unplacedAddresses = (store, activeId, terminals, spaces, machines) => unplacedTerminals(store, activeId, terminals, spaces, machines).map((t) => t.address);
+const cores = storeOf([{ ...workspace("base", "Base"), machine: "base-digital" }, { ...workspace("argon", "Argon"), machine: "planet-argon" }, workspace("free", "Free")]);
+
+test("unplaced terminals: a live terminal with no space label is listed in Default", () => {
+  assert.deepEqual(unplacedAddresses(cores, undefined, [term("t4m", {})], [hostSpace("sp1")], ready(null)), ["t4m"]);
+});
+
+test("unplaced terminals: a terminal labelled with a listed space on its machine is not listed", () => {
+  assert.deepEqual(unplacedAddresses(cores, undefined, [term("t4m", { "herdr.space": "sp1" })], [hostSpace("sp1")], ready(null)), []);
+  assert.deepEqual(unplacedAddresses(cores, undefined, [term("base-digital/t7", { "herdr.space": "sp1" })], [hostSpace("base-digital/sp1", "base-digital")], ready("base-digital")), []);
+});
+
+test("unplaced terminals: a finished terminal is not listed", () => {
+  assert.deepEqual(unplacedAddresses(cores, undefined, [term("t4m", {}, { state: "exited" })], [], ready(null)), []);
+});
+
+test("unplaced terminals: Default lists every core, a workspace only its own", () => {
+  const all = [term("base-digital/t7", {}), term("planet-argon/t2", {}), term("t4m", {})];
+  assert.deepEqual(unplacedAddresses(cores, undefined, all, [], ready(null, "base-digital", "planet-argon")), ["base-digital/t7", "planet-argon/t2", "t4m"]);
+  assert.deepEqual(unplacedAddresses(cores, "base", all, [], []), ["base-digital/t7"]);
+  assert.deepEqual(unplacedAddresses(cores, "argon", all, [], []), ["planet-argon/t2"]);
+});
+
+test("unplaced terminals: a workspace with no core lists none", () => {
+  assert.deepEqual(unplacedAddresses(cores, "free", [term("t4m", {}), term("base-digital/t7", {})], [], ready(null, "base-digital")), []);
+});
+
+test("unplaced terminals: a label naming a space of another machine leaves the terminal listed", () => {
+  const other = [hostSpace("base-digital/sp9", "base-digital")];
+  assert.deepEqual(unplacedAddresses(cores, undefined, [term("t4m", { "herdr.space": "sp9" })], other, ready(null)), ["t4m"]);
+});
+
+test("unplaced terminals: while a machine layout loads none of its labelled terminals is listed, whatever ids other machines hold", () => {
+  const spaces = [hostSpace("sp1"), hostSpace("sp2")];
+  const terminals = [
+    term("base-digital/t1", { "herdr.space": "sp1" }),
+    term("base-digital/t2", { "herdr.space": "sp2" }),
+    term("base-digital/t3", { "herdr.space": "sp7" }),
+  ];
+  const loading = [{ name: null, layout: "ready" }, { name: "base-digital", layout: "loading" }];
+  assert.deepEqual(unplacedAddresses(cores, undefined, terminals, spaces, loading), []);
+  assert.deepEqual(unplacedAddresses(cores, undefined, terminals, spaces, ready(null, "base-digital")), ["base-digital/t1", "base-digital/t2", "base-digital/t3"]);
+});
+
+test("unplaced terminals: a local label equal to a space id of another machine counts only once the local layout is ready", () => {
+  const spaces = [hostSpace("base-digital/sp1", "base-digital")];
+  const terminals = [term("t4m", { "herdr.space": "sp1" })];
+  assert.deepEqual(unplacedAddresses(cores, undefined, terminals, spaces, [{ name: null, layout: "loading" }]), []);
+  assert.deepEqual(unplacedAddresses(cores, undefined, terminals, spaces, ready(null)), ["t4m"]);
+});
+
+test("unplaced terminals: a stale label counts only once its machine layout is ready", () => {
+  const stale = [term("base-digital/t7", { "herdr.space": "gone" })];
+  assert.deepEqual(unplacedAddresses(cores, undefined, stale, [], ready("base-digital")), ["base-digital/t7"]);
+  assert.deepEqual(unplacedAddresses(cores, undefined, stale, [], [{ name: "base-digital", layout: "loading" }]), []);
+  assert.deepEqual(unplacedAddresses(cores, undefined, stale, [], []), []);
+});
+
+test("unplaced terminals: labels absent or not an object count as no label", () => {
+  const odd = [term("t4m", undefined), term("t5m", "x"), term("t6m", null)];
+  assert.deepEqual(unplacedAddresses(cores, undefined, odd, [], []), ["t4m", "t5m", "t6m"]);
+});
+
+test("place options: the parent's space comes first, then folder matches by longest folder, then the rest", () => {
+  const spaces = [hostSpace("a", null, "/other"), hostSpace("b", null, "/w"), hostSpace("c", null, "/w/app"), hostSpace("d", null, "/z")];
+  const parent = term("t1", { "herdr.space": "d" });
+  const child = term("t2", {}, { parent: "t1", cwd: "/w/app/.claude/worktrees/x" });
+  assert.deepEqual(placeOptions(child, [parent, child], spaces).map((s) => s.id), ["d", "c", "b", "a"]);
+});
+
+test("place options: a folder matches on a path segment boundary only", () => {
+  const ids = (cwd, folder) => placeOptions(term("t2", {}, { cwd }), [], [hostSpace("a", null, "/z"), hostSpace("m", null, folder)]).map((s) => s.id);
+  assert.deepEqual(ids("/w/app", "/w/app"), ["m", "a"]);
+  assert.deepEqual(ids("/w/application", "/w/app"), ["a", "m"]);
+  assert.deepEqual(ids("/w/app", "/w/app/"), ["m", "a"]);
+  assert.deepEqual(ids("/w/app", ""), ["a", "m"]);
+});
+
+test("place options: a parent absent, unlabelled or on a space of another machine adds no entry", () => {
+  const spaces = [hostSpace("a"), hostSpace("base-digital/sp1", "base-digital")];
+  const child = (parent) => term("t2", {}, { parent });
+  assert.deepEqual(placeOptions(child("t1"), [], spaces).map((s) => s.id), ["a"]);
+  assert.deepEqual(placeOptions(child("t1"), [term("t1", {})], spaces).map((s) => s.id), ["a"]);
+  const other = [hostSpace("a"), hostSpace("b")];
+  assert.deepEqual(placeOptions(child("base-digital/t1"), [term("base-digital/t1", { "herdr.space": "b" })], other).map((s) => s.id), ["a", "b"]);
+});
+
+test("place options: only spaces on the terminal's own machine are offered", () => {
+  const spaces = [hostSpace("a"), hostSpace("base-digital/sp1", "base-digital")];
+  assert.deepEqual(placeOptions(term("base-digital/t7", {}), [], spaces).map((s) => s.id), ["base-digital/sp1"]);
+  assert.deepEqual(placeOptions(term("planet-argon/t7", {}), [], spaces), []);
+});
+
+test("place label: the hc arguments label the terminal with the space's own-machine id", () => {
+  assert.deepEqual(placeLabelArgs({ address: "t4m" }, hostSpace("sp1")), ["label", "t4m", "herdr.space=sp1"]);
+  assert.deepEqual(placeLabelArgs({ address: "base-digital/t7" }, hostSpace("base-digital/sp1", "base-digital")), ["label", "base-digital/t7", "herdr.space=sp1"]);
+});
+
+test("place label: a space on another machine gives no arguments", () => {
+  assert.equal(placeLabelArgs({ address: "t4m" }, hostSpace("base-digital/sp1", "base-digital")), undefined);
+  assert.equal(placeLabelArgs({ address: "base-digital/t7" }, hostSpace("sp1")), undefined);
+});
+
+test("place menu: one item per option in order", () => {
+  const spaces = [hostSpace("a"), hostSpace("b")];
+  const items = menuItems({ tab: "place", target: { terminal: "t4m" } }, null, cores, undefined, [term("t4m", {})], spaces);
+  assert.deepEqual(items, [["a", "workspaces.place", { terminal: "t4m", space: "a" }], ["b", "workspaces.place", { terminal: "t4m", space: "b" }]]);
+});
+
+test("place menu: no option names the machine or this computer", () => {
+  const none = (address) => menuItems({ tab: "place", target: { terminal: address } }, null, cores, undefined, [term(address, {})], []);
+  assert.deepEqual(none("base-digital/t7"), [["No space on base-digital", "workspaces.none", {}]]);
+  assert.deepEqual(none("t4m"), [["No space on this computer", "workspaces.none", {}]]);
 });
