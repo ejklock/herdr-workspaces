@@ -2,7 +2,7 @@
 type: Issue
 title: Terminals with no space are invisible in the sidebar
 description: Terminals started without a herdr.space label (agents via hc run --bg, shells outside the app) never show; options to list and place them from the workspaces mod.
-status: open
+status: closed
 timestamp: 2026-11-23T16:40:24Z
 ---
 
@@ -50,7 +50,11 @@ The owner chose A on 2026-11-23, with a change: Default lists every terminal tha
 
 ### Acceptance
 
-- [ ] Default lists every live terminal with no `herdr.space`, from every core; a workspace view lists those of its own core.
-- [ ] "Move to space…" offers only spaces on the terminal's own machine, parent's space first, then the longest `folder` prefix of its `cwd`.
+- [x] Default lists every live terminal with no `herdr.space`, from every core; a workspace view lists those of its own core.
+- [x] "Move to space…" offers only spaces on the terminal's own machine, parent's space first, then the longest `folder` prefix of its `cwd`.
 - [ ] Choosing a space sets `herdr.space` and the terminal then shows under that space with its sub-agents; it leaves the Unplaced section.
-- [ ] The section is absent when nothing is unplaced.
+- [x] The section is absent when nothing is unplaced.
+
+### Outcome
+
+Shipped in #16 (186ff37). The sidebar lists the live terminals no space holds under "Unplaced": Default covers every core and a workspace its own core. A label naming no listed space counts only once its machine's layout is ready. A click offers the spaces on the terminal's own machine, parent's space first and then the longest folder holding its cwd, and labels the terminal with `herdr.space`, then selects that space. `node --test mods` is green (207). Mutations planted in `lib.js` (segment boundary, loading guard, machine check, sort order, live filter) each fail a test. Not verified: the section on screen in the owner's app, which needs `bin/install` into the real app home. `npm test` keeps one failure that also happens without this change, tracked in issue 0018.
