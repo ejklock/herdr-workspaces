@@ -46,17 +46,34 @@ export function paneProps(space: string, target: DiffTarget): Record<string, unk
 export type DiffAction = { kind: "focus"; pane: string } | { kind: "split"; pane: string } | { kind: "tab" };
 
 /**
- * What a click on a changed file does. A diff pane in the focused tab gets focus (the first, in panes() order); otherwise a new diff pane opens right of the focused pane.
- * Focus on a layout block has no model pane to split, so the diff opens in a new tab. With nothing focused nothing happens.
+ * What a click on a changed file does, so every click lands in one diff pane: a diff pane of the focused tab gets focus (the first, in panes() order),
+ * else one in another tab of the focused space (`tabs`, its tab ids); otherwise a new diff pane opens right of the focused pane.
+ * Focus on a layout block has no model pane to split, so with no diff pane the diff opens in a new tab. With nothing focused nothing happens.
  */
-export function diffTarget({ panes, focused }: {
+export function diffTarget({ panes, focused, tabs = [] }: {
   panes: readonly { pane: string; mod?: string; tab: string }[];
   focused: { tab: string; pane: string | null } | null;
+  tabs?: readonly string[];
 }): DiffAction | undefined {
   if (!focused) return undefined;
-  if (focused.pane === null) return { kind: "tab" };
-  const shown = panes.find(p => p.mod === "my-diff" && p.tab === focused.tab);
-  return shown ? { kind: "focus", pane: shown.pane } : { kind: "split", pane: focused.pane };
+  const diffs = panes.filter(p => p.mod === "my-diff");
+  const shown = diffs.find(p => p.tab === focused.tab) ?? diffs.find(p => tabs.includes(p.tab));
+  if (shown) return { kind: "focus", pane: shown.pane };
+  return focused.pane === null ? { kind: "tab" } : { kind: "split", pane: focused.pane };
+}
+
+/**
+ * The folder the changes panel reads (`at`) and the terminal folder to remember (`last`): what the focus gives, except while a mod
+ * (such as the diff pane) has focus, which has no folder of its own; then the last terminal's folder in the same space stays,
+ * so a click in the diff pane does not empty the list. A focused terminal becomes the remembered one for its space.
+ */
+export function panelLocation<L>(
+  focus: { space: string; terminal: string | null } | null,
+  read: L,
+  last: { space: string; at: L } | undefined,
+): { at: L; last: { space: string; at: L } | undefined } {
+  if (focus && focus.terminal !== null) return { at: read, last: { space: focus.space, at: read } };
+  return { at: focus && last?.space === focus.space ? last.at : read, last };
 }
 
 type Exec = (command: string, args?: string[], options?: { cwd?: string; on?: string | null }) => Promise<{ code: number; stdout: string; stderr: string }>;

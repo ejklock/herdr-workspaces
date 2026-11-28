@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { diffTarget, nextSeq, nextTargets, paneProps, untrackedAdds, totals } from "../../src/list/target.ts";
+import { diffTarget, nextSeq, nextTargets, paneProps, panelLocation, untrackedAdds, totals } from "../../src/list/target.ts";
 
 type Call = { command: string; args: string[] | undefined; options: { cwd?: string; on?: string | null } | undefined };
 type Result = { code: number; stdout: string; stderr: string };
@@ -127,9 +127,30 @@ describe("opening a changed file in the diff pane", () => {
     assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: "p1" } }), { kind: "focus", pane: "d2" });
   });
 
-  it("splits right of the focused pane when the diff pane is in another tab", () => {
+  it("focuses the diff pane itself when it has focus, so clicks keep one pane", () => {
+    const panes = [pane("p1", "t1"), pane("d1", "t1", "my-diff")];
+    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: "d1" } }), { kind: "focus", pane: "d1" });
+  });
+
+  it("focuses the diff pane of the focused tab when a layout block has focus", () => {
+    const panes = [pane("p1", "t1"), pane("d1", "t1", "my-diff")];
+    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: null } }), { kind: "focus", pane: "d1" });
+  });
+
+  it("focuses the diff pane of another tab of the focused space", () => {
     const panes = [pane("p1", "t1"), pane("d1", "t2", "my-diff")];
-    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: "p1" } }), { kind: "split", pane: "p1" });
+    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: "p1" }, tabs: ["t1", "t2"] }), { kind: "focus", pane: "d1" });
+    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: null }, tabs: ["t1", "t2"] }), { kind: "focus", pane: "d1" });
+  });
+
+  it("prefers the diff pane of the focused tab over one in another tab of the space", () => {
+    const panes = [pane("d2", "t2", "my-diff"), pane("p1", "t1"), pane("d1", "t1", "my-diff")];
+    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: "p1" }, tabs: ["t1", "t2"] }), { kind: "focus", pane: "d1" });
+  });
+
+  it("splits right of the focused pane when the diff pane is in a tab of another space", () => {
+    const panes = [pane("p1", "t1"), pane("d1", "t2", "my-diff")];
+    assert.deepEqual(diffTarget({ panes, focused: { tab: "t1", pane: "p1" }, tabs: ["t1"] }), { kind: "split", pane: "p1" });
   });
 
   it("splits right of the focused pane when no diff pane exists", () => {
@@ -143,6 +164,31 @@ describe("opening a changed file in the diff pane", () => {
 
   it("does nothing when nothing has focus", () => {
     assert.equal(diffTarget({ panes: [pane("p1", "t1")], focused: null }), undefined);
+  });
+});
+
+describe("the folder the changes panel reads", () => {
+  const terminal = { cwd: "/repo", on: null };
+  const fallback = { cwd: "/home", on: null };
+
+  it("follows a focused terminal and remembers it for its space", () => {
+    assert.deepEqual(panelLocation({ space: "A", terminal: "t" }, terminal, { space: "B", at: fallback }), { at: terminal, last: { space: "A", at: terminal } });
+  });
+
+  it("keeps the last terminal's folder of the same space while a mod pane has focus", () => {
+    const last = { space: "A", at: terminal };
+    assert.deepEqual(panelLocation({ space: "A", terminal: null }, fallback, last), { at: terminal, last });
+  });
+
+  it("reads the focus again when a mod pane has focus in another space, still remembering the earlier terminal", () => {
+    const last = { space: "A", at: terminal };
+    assert.deepEqual(panelLocation({ space: "B", terminal: null }, fallback, last), { at: fallback, last });
+  });
+
+  it("reads the focus when no terminal was focused before or nothing has focus", () => {
+    assert.deepEqual(panelLocation({ space: "A", terminal: null }, fallback, undefined), { at: fallback, last: undefined });
+    const last = { space: "A", at: terminal };
+    assert.deepEqual(panelLocation(null, fallback, last), { at: fallback, last });
   });
 });
 

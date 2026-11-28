@@ -4,7 +4,7 @@ import type { Context, AsyncContext } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import type { FocusHandle } from "gpui";
 import { spaces, panes, focused, exec, run, shared, setShared, watchFolder, theme } from "herdr";
-import { diffTarget, nextTargets, paneProps, totals, untrackedAdds, TARGETS_KEY } from "./target.ts";
+import { diffTarget, nextTargets, paneProps, panelLocation, totals, untrackedAdds, TARGETS_KEY } from "./target.ts";
 import { LIMIT, STATUS_ARGS, addStats, changeList, commitSteps, emptyMessage, numstatArgs, untrackedPaths, type FileChange, type Stat } from "./status.ts";
 
 type Hex = `#${string}`;
@@ -16,11 +16,16 @@ type Loaded = { kind: "stale" } | { kind: "none" } | { kind: "ok"; root: string;
 const colorsOf = (t: Record<string, string>): Colors =>
   Object.fromEntries(Object.entries(t).map(([name, v]) => [name, v.startsWith("#") ? (v as Hex) : "#808080"]));
 
+let lastTerminal: { space: string; at: Location } | undefined;
+
 const location = (): Location => {
   const space = spaces().find(s => s.active), f = focused();
   const pane = f?.pane ? panes().find(p => p.pane === f.pane) : undefined;
   const on = f?.pane === null ? (f.terminal?.includes("/") ? (f.terminal.split("/")[0] ?? null) : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  const read = { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  const { at, last } = panelLocation(f, read, lastTerminal);
+  lastTerminal = last;
+  return at;
 };
 const key = (): string => JSON.stringify(location());
 
@@ -154,7 +159,8 @@ export default class Changes extends View {
     this.selected = path; this.note = null;
     const targets = nextTargets(shared(TARGETS_KEY), f.space, { root: this.root, path, on: this.on }, spaces().map(s => s.id));
     const target = targets[f.space]!;
-    const action = diffTarget({ panes: panes(), focused: { tab: f.tab, pane: f.pane } });
+    const tabs = spaces().find(s => s.id === f.space)?.tabs.map(t => t.id) ?? [];
+    const action = diffTarget({ panes: panes(), focused: { tab: f.tab, pane: f.pane }, tabs });
     try {
       setShared(TARGETS_KEY, targets);
       if (action?.kind === "focus") run("pane.focus", { pane: action.pane });
