@@ -1,7 +1,7 @@
 // The context menus' item lists, pure so Node can test them. An item is
 // [label, command, args, checked, workspace]; `terms` is the live terminal list, `git` the space's checkout kind.
 
-import { newSpaceArgs, canMoveSpace, placeOptions, machineOf, spaceGroup, workspaceGroups } from "./lib.js";
+import { newSpaceArgs, canMoveSpace, spaceGroup, workspaceGroups } from "./lib.js";
 
 function workspaceMoveItems(tg, store) {
   const current = store.assign[tg.id];
@@ -32,6 +32,7 @@ function paneItems(tg, terms) {
   // A kept sub-agent can go back under its parent, still running.
   const term = terms.find((t) => t.address === tg.terminal);
   const parent = term?.parent && terms.find((t) => t.address === term.parent);
+  const placed = typeof term?.labels?.["herdr.space"] === "string" && term.labels["herdr.space"] !== "";
   // Once they go to the program, Shift+right-click still opens this menu.
   const toProgram = term?.labels?.["herdr.right-click"] === "program";
   return [
@@ -46,17 +47,9 @@ function paneItems(tg, terms) {
         ]
       : []),
     ...(parent ? [[`Send back to ${parent.name || parent.address}`, "terminal.park", { terminal: term.address }]] : []),
+    ...(placed ? [["Remove from space", "workspaces.unplace", { terminal: term.address }]] : []),
     ["Close pane", "pane.close", { pane: tg.pane }],
   ];
-}
-
-// The spaces a terminal with no space can be placed in; with none on its machine, one item that only closes the menu.
-function placeItems(tg, terms, spaces) {
-  const term = terms.find((t) => t.address === tg.terminal);
-  if (!term) return [];
-  const options = placeOptions(term, terms, spaces);
-  if (options.length === 0) return [[`No space on ${machineOf(term.address) ?? "this computer"}`, "workspaces.none", {}]];
-  return options.map((s) => [s.name, "workspaces.place", { terminal: term.address, space: s.id }]);
 }
 
 function tabItems(tg) {
@@ -110,8 +103,6 @@ export function menuItems(p, git, store, activeId, terms, spaces = []) {
       return groupItems(tg);
     case "pane":
       return paneItems(tg, terms);
-    case "place":
-      return placeItems(tg, terms, spaces);
     case "tab":
       return tabItems(tg);
     case "space":

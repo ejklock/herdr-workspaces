@@ -7,7 +7,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, machines, terminals, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, readTextFile, writeTextFile, notify, nextCommand } from "herdr";
-import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, machineOf, unplacedTerminals, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceStep, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
+import { FOCUS_KEY, focusReady, firstListedSpace, storeHome, storePaths, machineOf, unplacedTerminals, visibleSpaces, activeWorkspace, sidebarMachines, newSpaceStep, addTarget, placeLabelArgs, settledStore, spaceListState, showsCoreRow, sidebarSections, arrangeRows, machineFoldKey, foldedAway, spaceGroup, moveToGroup, updateStore } from "./lib.js";
 import { followWorkspaceStore, openWorkspaceDialog } from "./switcher.js";
 
 function find(node, id) {
@@ -240,10 +240,6 @@ export default class Spaces extends View {
     openOverlay({ mod: "workspaces", kind: "popup", width: 200, height: 300, props: { role: "menu", tab: "space", target: { id: w.id, groupSpace } } });
   }
 
-  placeMenu(terminal) {
-    openOverlay({ mod: "workspaces", kind: "popup", width: 220, height: 300, props: { role: "menu", tab: "place", target: { terminal: terminal.address } } });
-  }
-
   groupMenu(g) {
     openOverlay({ mod: "workspaces", kind: "popup", width: 200, height: 120, props: { role: "menu", tab: "group", target: { id: g.id } } });
   }
@@ -466,7 +462,7 @@ export default class Spaces extends View {
         .children([...this.coreRow(t, collapsed), ...this.grouped(t, collapsed), ...this.unplaced(t, collapsed)]));
   }
 
-  // The live terminals no space holds, under a header with their count; choosing one opens the menu of spaces to place it in. Not drawn in the narrow rail.
+  // The live terminals no space holds, under a header with their count; each row adds it to the shown space or closes it. Not drawn in the narrow rail.
   unplaced(t, collapsed) {
     const list = collapsed ? [] : unplacedTerminals(this.store, shared("workspaces.active"), terminals(), spaces(), machines());
     if (list.length === 0) return [];
@@ -478,16 +474,36 @@ export default class Spaces extends View {
     ];
   }
 
+  // Labels a terminal with the space's id so Herdr places it there, then shows that space; a failure is shown as a toast and selects nothing.
+  async addToSpace(term, space) {
+    const title = "Could not place the terminal";
+    try {
+      const r = await hc(placeLabelArgs(term, space));
+      if (r.code === 0) run("space.select", { id: space.id });
+      else notify({ title, body: r.stderr.trim() || `hc exited ${r.code}`, level: "error" });
+    } catch (e) {
+      notify({ title, body: e.message ?? String(e), level: "error" });
+    }
+  }
+
+  unplacedIcon(id, icon, t, action) {
+    return div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
+      .hover(s => s.bg(t.hover).text_color(t.foreground))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(action)
+      .child(svg(`mods/workspaces/${icon}.svg`).size(13));
+  }
+
   unplacedRow(term, t) {
     const machine = machineOf(term.address);
+    const target = addTarget(term, spaces());
     return h_flex().id(`unplaced-${term.address}`).h(28).flex_none().px(8).gap(9).items_center().rounded(6).text_size(12.5)
-      .cursor_pointer().hover(s => s.bg(t.hover))
-      .on_mouse_up("left", () => this.placeMenu(term))
-      .on_mouse_down("right", () => this.placeMenu(term))
+      .hover(s => s.bg(t.hover))
       .child(svg("mods/workspace-chrome/terminal.svg").size(13).flex_none().text_color(t.dim))
       .child(div().flex_shrink(0).max_w(130).truncate().text_color(t.foreground).child(term.name || term.program?.name || term.address))
       .child(div().flex_1().truncate().text_color(t.dim).child(base(term.cwd ?? "")))
-      .when(machine !== null, el => el.child(div().flex_none().text_color(t.dim).child(machine)));
+      .when(machine !== null, el => el.child(div().flex_none().text_color(t.dim).child(machine)))
+      .when(target !== undefined, el => el.child(this.unplacedIcon(`unplaced-add-${term.address}`, "plus", t, () => void this.addToSpace(term, target))))
+      .child(this.unplacedIcon(`unplaced-close-${term.address}`, "x", t, () => run("terminal.kill", { terminal: term.address })));
   }
 
   // One row ahead of the spaces while the active workspace has no core: it opens that workspace in the edit dialog.

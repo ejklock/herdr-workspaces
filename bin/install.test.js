@@ -36,6 +36,8 @@ mkdirSync("mods/my-changes/list", { recursive: true });
 writeFileSync("mods/my-changes/list/main.js", "built list/main.js");
 mkdirSync("mods/my-diff/changes", { recursive: true });
 writeFileSync("mods/my-diff/changes/pane.js", "built changes/pane.js");
+mkdirSync("mods/my-diff/vendor", { recursive: true });
+writeFileSync("mods/my-diff/vendor/highlight.js", "vendored highlight.js");
 `;
 
 // A copy of the repository with a plugin whose build writes small files, so a test can alter the
@@ -147,7 +149,7 @@ test("the installed layout swaps only the Files and Changes mods to my-files and
   assert.match(run.stdout, /my-files/);
   assert.match(run.stdout, /my-changes/);
   assert.match(installedLayout(home), /"id": "files"/);
-  assert.match(installedLayout(home), /"active": "files"/);
+  assert.match(installedLayout(home), /"active": "sidebar-spaces"/);
 });
 
 function makeAutoTabs(home) {
@@ -180,7 +182,7 @@ test("the tab bar uses auto-tabs when the app home has a mods/auto-tabs folder a
   assert.deepEqual(snapshot(folder), before);
 });
 
-test("the tab bar uses auto-tabs with --without editor and the side panel keeps the shipped mods", () => {
+test("the tab bar uses auto-tabs with --without editor and the sidebar's Files and Changes views keep the shipped mods", () => {
   const home = freshHome();
   const folder = makeAutoTabs(home);
   const before = snapshot(folder);

@@ -1,6 +1,6 @@
 # herdr-workspaces: a workspace switcher layout for the Herdr app
 
-A Herdr app layout and mod (`workspaces`) that groups your spaces into workspaces, so one Herdr window stays tidy when you run many AI coding agents across several herdr-core machines. The sidebar lists only the chosen workspace's spaces (Default, this computer's spaces, by default), with a "Workspace" selector at the top of the sidebar, above the spaces list, to pick, create, edit and delete workspaces (name, icon, color, core), and a "Move to workspace…" item in the right-click menu of a space on another machine. The status bar names this computer "default" instead of "This computer". Default also lists, under "Unplaced", the live terminals no space holds on any core (a workspace, those of its own core), and clicking one places it in a space on its own machine. Everything is served by one mod folder, `mods/workspaces/`.
+A Herdr app layout and mod (`workspaces`) that groups your spaces into workspaces, so one Herdr window stays tidy when you run many AI coding agents across several herdr-core machines. The sidebar lists only the chosen workspace's spaces (Default, this computer's spaces, by default), with a "Workspace" selector at the top of the sidebar, above the spaces list, to pick, create, edit and delete workspaces (name, icon, color, core), and a "Move to workspace…" item in the right-click menu of a space on another machine. The status bar names this computer "default" instead of "This computer". Default also lists, under "Unplaced", the live terminals no space holds on any core (a workspace, those of its own core), each with a `+` that adds it to the shown space (when that space is on the terminal's own machine) and an `x` that closes it; a placed terminal's pane menu offers "Remove from space". Everything is served by one mod folder, `mods/workspaces/`.
 
 ![The workspaces layout: the Acme workspace active, its two spaces listed with no machine header, and the Workspace selector in the footer](preview.png)
 
@@ -32,7 +32,7 @@ bin/install ~/.config/herdr-app
 The script copies `mods/workspaces` (without tests and editor files) and `layouts/Workspaces.json` (replacing an earlier `workspaces.json` it installed) into
 the app home; Herdr draws a mod's icons and reloads its edits only from real files, not links. Rerun it
 after each change: Herdr picks the edit up in the open window. The copy carries a `.installed-from` file
-naming the project (`herdr-workspaces`), not the checkout. The layout's side-panel Files and Changes blocks use the `my-files` and `my-changes` mods when the editor
+naming the project (`herdr-workspaces`), not the checkout. The layout's left-sidebar Files and Changes views use the `my-files` and `my-changes` mods when the editor
 plugin is installed (the default), and Herdr's `files` and `changes` with `--without editor`. The tab bar uses the `auto-tabs` mod when the app home has a `mods/auto-tabs` folder at install (se-configs installs it; this repository does not ship it) and Herdr's `tabs` otherwise, with or without `--without editor`. A rerun replaces a copy made from any checkout of the project (an earlier marker holding a checkout path counts too) or an earlier link into this repository and refuses anything else (another folder, a foreign
 link, a layout file it did not make), checking every target and the source layout before writing any. After updating from an install that used the earlier `workspaces` layout, pick Workspaces once in Settings; this starts Herdr's per-layout clicks (sidebar width, the layout's theme picks) fresh.
 
@@ -43,8 +43,8 @@ link, a layout file it did not make), checking every target and the source layou
 untouched (the layout then goes back to Herdr's `files` and `changes`). The plugin adds:
 
 - `editor`: an editable file editor pane (save, formatters, conflict handling).
-- `my-files`: the side-panel file tree, whose click opens a file in the editor, with a colored icon for each file type.
-- `my-changes`: the side-panel list of changed files (the Changes block), whose click opens the file in `my-diff`.
+- `my-files`: the file tree in the left sidebar's Files view, whose click opens a file in the editor, with a colored icon for each file type.
+- `my-changes`: the list of changed files in the left sidebar's Changes view, whose click opens the file in `my-diff`.
 - `my-diff`: a side-by-side diff pane of one file, HEAD against the working tree.
 
 The plugin is TypeScript, so installing it needs Node and the `typescript` package (`npm install` at the

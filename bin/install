@@ -88,7 +88,7 @@ check_layout() {
   check_layout_file "$layout_target" && check_layout_file "$earlier_layout"
 }
 
-# The side-panel Files and Changes blocks and the tab bar each name one mod and Herdr has no fallback, so the choice is made at install.
+# The sidebar's Files and Changes view blocks and the tab bar each name one mod and Herdr has no fallback, so the choice is made at install.
 # Only the block's own "mod" value is rewritten; the anchor must match exactly once, and an unreadable
 # source counts as no match.
 source_layout="$repo/layouts/Workspaces.json"

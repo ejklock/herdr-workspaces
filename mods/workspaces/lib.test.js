@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import {
   parseStore,
+  SIDEBAR_VIEWS,
+  nextSidebarView,
   storeHome,
   OPTIONAL_WINDOW_SOURCES,
   storePaths,
@@ -49,8 +51,9 @@ import {
   ensureStoreDir,
   runOpen,
   unplacedTerminals,
-  placeOptions,
   placeLabelArgs,
+  addTarget,
+  unplaceLabelArgs,
 } from "./lib.js";
 import { menuItems, menuIcon } from "./menu-items.js";
 
@@ -1517,36 +1520,6 @@ test("unplaced terminals: labels absent or not an object count as no label", () 
   assert.deepEqual(unplacedAddresses(cores, undefined, odd, [], []), ["t4m", "t5m", "t6m"]);
 });
 
-test("place options: the parent's space comes first, then folder matches by longest folder, then the rest", () => {
-  const spaces = [hostSpace("a", null, "/other"), hostSpace("b", null, "/w"), hostSpace("c", null, "/w/app"), hostSpace("d", null, "/z")];
-  const parent = term("t1", { "herdr.space": "d" });
-  const child = term("t2", {}, { parent: "t1", cwd: "/w/app/.claude/worktrees/x" });
-  assert.deepEqual(placeOptions(child, [parent, child], spaces).map((s) => s.id), ["d", "c", "b", "a"]);
-});
-
-test("place options: a folder matches on a path segment boundary only", () => {
-  const ids = (cwd, folder) => placeOptions(term("t2", {}, { cwd }), [], [hostSpace("a", null, "/z"), hostSpace("m", null, folder)]).map((s) => s.id);
-  assert.deepEqual(ids("/w/app", "/w/app"), ["m", "a"]);
-  assert.deepEqual(ids("/w/application", "/w/app"), ["a", "m"]);
-  assert.deepEqual(ids("/w/app", "/w/app/"), ["m", "a"]);
-  assert.deepEqual(ids("/w/app", ""), ["a", "m"]);
-});
-
-test("place options: a parent absent, unlabelled or on a space of another machine adds no entry", () => {
-  const spaces = [hostSpace("a"), hostSpace("base-digital/sp1", "base-digital")];
-  const child = (parent) => term("t2", {}, { parent });
-  assert.deepEqual(placeOptions(child("t1"), [], spaces).map((s) => s.id), ["a"]);
-  assert.deepEqual(placeOptions(child("t1"), [term("t1", {})], spaces).map((s) => s.id), ["a"]);
-  const other = [hostSpace("a"), hostSpace("b")];
-  assert.deepEqual(placeOptions(child("base-digital/t1"), [term("base-digital/t1", { "herdr.space": "b" })], other).map((s) => s.id), ["a", "b"]);
-});
-
-test("place options: only spaces on the terminal's own machine are offered", () => {
-  const spaces = [hostSpace("a"), hostSpace("base-digital/sp1", "base-digital")];
-  assert.deepEqual(placeOptions(term("base-digital/t7", {}), [], spaces).map((s) => s.id), ["base-digital/sp1"]);
-  assert.deepEqual(placeOptions(term("planet-argon/t7", {}), [], spaces), []);
-});
-
 test("place label: the hc arguments label the terminal with the space's own-machine id", () => {
   assert.deepEqual(placeLabelArgs({ address: "t4m" }, hostSpace("sp1")), ["label", "t4m", "herdr.space=sp1"]);
   assert.deepEqual(placeLabelArgs({ address: "base-digital/t7" }, hostSpace("base-digital/sp1", "base-digital")), ["label", "base-digital/t7", "herdr.space=sp1"]);
@@ -1557,14 +1530,69 @@ test("place label: a space on another machine gives no arguments", () => {
   assert.equal(placeLabelArgs({ address: "base-digital/t7" }, hostSpace("sp1")), undefined);
 });
 
-test("place menu: one item per option in order", () => {
-  const spaces = [hostSpace("a"), hostSpace("b")];
-  const items = menuItems({ tab: "place", target: { terminal: "t4m" } }, null, cores, undefined, [term("t4m", {})], spaces);
-  assert.deepEqual(items, [["a", "workspaces.place", { terminal: "t4m", space: "a" }], ["b", "workspaces.place", { terminal: "t4m", space: "b" }]]);
+const shown = (id, machine = null) => ({ ...hostSpace(id, machine), active: true });
+
+test("add target: a local terminal and a local shown space give that space", () => {
+  assert.equal(addTarget(term("t4m", {}), [hostSpace("a"), shown("b")]).id, "b");
 });
 
-test("place menu: no option names the machine or this computer", () => {
-  const none = (address) => menuItems({ tab: "place", target: { terminal: address } }, null, cores, undefined, [term(address, {})], []);
-  assert.deepEqual(none("base-digital/t7"), [["No space on base-digital", "workspaces.none", {}]]);
-  assert.deepEqual(none("t4m"), [["No space on this computer", "workspaces.none", {}]]);
+test("add target: a terminal and a shown space on the same other machine give that space", () => {
+  assert.equal(addTarget(term("m1/t7", {}), [shown("m1/sp1", "m1")]).id, "m1/sp1");
+});
+
+test("add target: a local terminal with the shown space on another machine gives none", () => {
+  assert.equal(addTarget(term("t4m", {}), [shown("m1/sp1", "m1")]), undefined);
+});
+
+test("add target: a remote terminal with a local shown space gives none", () => {
+  assert.equal(addTarget(term("m1/t7", {}), [shown("sp1")]), undefined);
+});
+
+test("add target: no shown space gives none", () => {
+  assert.equal(addTarget(term("t4m", {}), [hostSpace("a")]), undefined);
+  assert.equal(addTarget(term("t4m", {}), []), undefined);
+});
+
+test("add target: of several spaces only the shown one counts", () => {
+  assert.equal(addTarget(term("t4m", {}), [hostSpace("a"), hostSpace("b"), shown("c"), hostSpace("d")]).id, "c");
+});
+
+test("remove from space: a placed terminal's pane menu offers it right before Close pane", () => {
+  const items = menuItems({ tab: "pane", target: { terminal: "t4m", pane: "p1" } }, null, cores, undefined, [term("t4m", { "herdr.space": "sp1" })]);
+  const at = items.findIndex((it) => it[0] === "Remove from space");
+  assert.deepEqual(items[at], ["Remove from space", "workspaces.unplace", { terminal: "t4m" }]);
+  assert.equal(items[at + 1][0], "Close pane");
+});
+
+test("remove from space: an empty or absent space label offers none", () => {
+  const labels = (l) => menuItems({ tab: "pane", target: { terminal: "t4m", pane: "p1" } }, null, cores, undefined, [term("t4m", l)]).map((it) => it[0]);
+  assert.ok(!labels({ "herdr.space": "" }).includes("Remove from space"));
+  assert.ok(!labels({}).includes("Remove from space"));
+  assert.ok(!labels(undefined).includes("Remove from space"));
+});
+
+test("remove from space: a pane with no terminal offers none", () => {
+  const items = menuItems({ tab: "pane", target: { pane: "p1" } }, null, cores, undefined, []);
+  assert.ok(!items.some((it) => it[0] === "Remove from space"));
+});
+
+test("remove from space: the hc arguments clear the space label", () => {
+  assert.deepEqual(unplaceLabelArgs({ address: "t4m" }), ["label", "t4m", "herdr.space="]);
+  assert.deepEqual(unplaceLabelArgs({ address: "m1/t7" }), ["label", "m1/t7", "herdr.space="]);
+});
+
+test("sidebar view: the rail lists the three views in order with icons that exist", () => {
+  assert.deepEqual(SIDEBAR_VIEWS.map((v) => [v.id, v.icon]), [["sidebar-spaces", "layers"], ["files", "files"], ["changes", "git-compare"]]);
+  for (const view of SIDEBAR_VIEWS) assert.ok(existsSync(new URL(`./${view.icon}.svg`, import.meta.url)), view.icon);
+});
+
+test("sidebar view: a click moves to the next view and wraps at the end", () => {
+  assert.equal(nextSidebarView("sidebar-spaces"), "files");
+  assert.equal(nextSidebarView("files"), "changes");
+  assert.equal(nextSidebarView("changes"), "sidebar-spaces");
+});
+
+test("sidebar view: an unknown or missing active view goes to the first", () => {
+  assert.equal(nextSidebarView("nope"), "sidebar-spaces");
+  assert.equal(nextSidebarView(undefined), "sidebar-spaces");
 });
