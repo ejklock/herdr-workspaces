@@ -22,6 +22,32 @@ export function currentBlock(shown: readonly DisplayRow[], cursor: number | unde
   return row?.kind === "change" ? row.block : undefined;
 }
 
+export type RulerMark = { top: number; size: number; kind: "added" | "removed" | "changed"; stop: number };
+
+/** One mark per change block, placed by where the block starts among the shown rows and sized by its rows, within `height` pixels (a mark never runs past the end); `stop` indexes `stops(shown)`. */
+export function rulerMarks(shown: readonly DisplayRow[], height: number): RulerMark[] {
+  if (shown.length === 0 || height <= 0) return [];
+  return stops(shown).map((start, stop): RulerMark => {
+    const first = shown[start];
+    const id = first?.kind === "change" ? first.block : undefined;
+    let rows = 0;
+    let hasLeft = false;
+    let hasRight = false;
+    for (let row = shown[start]; row?.kind === "change" && row.block === id; row = shown[start + rows]) {
+      rows++;
+      hasLeft ||= row.left !== undefined;
+      hasRight ||= row.right !== undefined;
+    }
+    const size = Math.max(3, Math.round(rows / shown.length * height));
+    return {
+      top: Math.max(0, Math.min(Math.floor(start / shown.length * height), Math.floor(height - size))),
+      size,
+      kind: !hasLeft ? "added" : !hasRight ? "removed" : "changed",
+      stop,
+    };
+  });
+}
+
 /** The cursor after a step over `count` stops, without wrapping; from no cursor, both directions go to the first stop. */
 export function step(cursor: number | undefined, count: number, direction: "previous" | "next"): number | undefined {
   if (count === 0) return undefined;

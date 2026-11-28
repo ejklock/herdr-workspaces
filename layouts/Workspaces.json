@@ -40,38 +40,76 @@
           }
         },
         {
-          "id": "sidebar-lists",
-          "type": "column",
+          "id": "sidebar-views-bar",
+          "type": "block",
+          "content": {
+            "mod": "workspaces",
+            "props": {
+              "role": "chrome",
+              "views": true
+            }
+          },
+          "size": {
+            "px": 40
+          }
+        },
+        {
+          "id": "sidebar-views",
+          "type": "stack",
           "children": [
             {
-              "id": "spaces",
-              "type": "block",
-              "content": {
-                "mod": "workspaces",
-                "props": {
-                  "role": "spaces"
+              "id": "sidebar-spaces",
+              "type": "column",
+              "children": [
+                {
+                  "id": "spaces",
+                  "type": "block",
+                  "content": {
+                    "mod": "workspaces",
+                    "props": {
+                      "role": "spaces"
+                    }
+                  },
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 90
+                },
+                {
+                  "id": "agents",
+                  "type": "block",
+                  "content": {
+                    "mod": "workspaces",
+                    "props": {
+                      "role": "agents"
+                    }
+                  },
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 90
                 }
-              },
-              "size": {
-                "weight": 1
-              },
-              "min": 90
+              ]
             },
             {
-              "id": "agents",
+              "id": "files",
               "type": "block",
               "content": {
-                "mod": "workspaces",
-                "props": {
-                  "role": "agents"
-                }
-              },
-              "size": {
-                "weight": 1
-              },
-              "min": 90
+                "mod": "files"
+              }
+            },
+            {
+              "id": "changes",
+              "type": "block",
+              "content": {
+                "mod": "changes"
+              }
             }
-          ]
+          ],
+          "active": "sidebar-spaces",
+          "size": {
+            "weight": 1
+          }
         },
         {
           "id": "sidebar-footer",
@@ -143,39 +181,6 @@
                   "lone": true
                 }
               }
-            },
-            {
-              "id": "panel",
-              "type": "column",
-              "children": [
-                {
-                  "id": "panel-body",
-                  "type": "stack",
-                  "children": [
-                    {
-                      "id": "files",
-                      "type": "block",
-                      "content": {
-                        "mod": "files"
-                      }
-                    },
-                    {
-                      "id": "changes",
-                      "type": "block",
-                      "content": {
-                        "mod": "changes"
-                      }
-                    }
-                  ],
-                  "active": "files"
-                }
-              ],
-              "size": {
-                "px": 368
-              },
-              "min": 280,
-              "max": 900,
-              "hidden": true
             }
           ],
           "padding": 8,

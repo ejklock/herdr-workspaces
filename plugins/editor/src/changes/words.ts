@@ -1,6 +1,9 @@
 import type { DisplayRow } from "./rows.ts";
+import type { SyntaxName, SyntaxSpan } from "./syntax.ts";
 
 export type Span = { text: string; changed: boolean };
+/** A run of text with one syntax color and one changed flag. */
+export type Segment = { text: string; color?: SyntaxName; changed: boolean };
 
 /** The word spans of a row that pairs a removed line with an added one; every other row keeps its whole-line tint. */
 export function rowSpans(row: DisplayRow): { left: Span[]; right: Span[] } | undefined {
@@ -79,7 +82,43 @@ function toSpans(tokens: string[], kept: boolean[]): Span[] {
   return spans;
 }
 
-/** Each span cut after every whitespace run, so a highlighted line can break between pieces; the pieces join back to the line. */
-export function wrapPieces(spans: readonly Span[]): Span[] {
-  return spans.flatMap(({ text, changed }) => (text.match(/\S*\s+|\S+/gu) ?? []).map(piece => ({ text: piece, changed })));
+/**
+ * Cuts a line's syntax spans at every boundary of its word spans, so each segment keeps its syntax color
+ * and says whether its words changed. Word spans that do not join to the line, or none, leave every segment unchanged.
+ */
+export function mergeSpans(syntax: readonly SyntaxSpan[], words: readonly Span[] | undefined): Segment[] {
+  const line = syntax.map(span => span.text).join("");
+  const cuts = words?.filter(word => word.text !== "");
+  const usable = cuts && cuts.map(word => word.text).join("") === line ? cuts : undefined;
+  const segments: Segment[] = [];
+  let word = 0;
+  let used = 0;
+  for (const span of syntax) {
+    let at = 0;
+    while (at < span.text.length) {
+      const current = usable?.[word];
+      const take = Math.min(current ? current.text.length - used : Infinity, span.text.length - at);
+      const base = { text: span.text.slice(at, at + take), changed: current?.changed === true };
+      segments.push(span.color === undefined ? base : { ...base, color: span.color });
+      at += take;
+      used += take;
+      if (current && used === current.text.length) { word++; used = 0; }
+    }
+  }
+  return segments;
+}
+
+const MAX_PIECE = 40;
+
+/** Each span cut after every whitespace run and into chunks of at most 40 characters, so a line can break between pieces and a long token still wraps; the pieces join back to the line. */
+export function wrapPieces<T extends { text: string }>(spans: readonly T[]): T[] {
+  return spans.flatMap(span => (span.text.match(/\S*\s+|\S+/gu) ?? []).flatMap(piece => chunks(piece).map(text => ({ ...span, text }))));
+}
+
+// Counted in code points, so an emoji or another character outside the basic plane is never split in half.
+// A sequence of several code points, such as a flag or a joined emoji, can still fall across two chunks.
+const CHUNK = new RegExp(`[^]{1,${MAX_PIECE}}`, "gu");
+
+function chunks(piece: string): string[] {
+  return piece.match(CHUNK) ?? [];
 }

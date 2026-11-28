@@ -1,7 +1,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, props, window, shared, setShared, updates, layout, openOverlay } from "herdr";
-import { activeWorkspace, DEFAULT_ICON } from "./lib.js";
+import { activeWorkspace, DEFAULT_ICON, SIDEBAR_VIEWS, nextSidebarView } from "./lib.js";
 import { openWorkspaceWindow } from "./window.js";
 import { ACTIVE_KEY, followWorkspaceStore, iconPath, switcherHeight, workspaceColor } from "./switcher.js";
 
@@ -35,6 +35,20 @@ export default class WorkspaceChrome extends View {
     return div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(action).child(label);
   }
+  viewsRail(t, collapsed) {
+    const active = find(layout(), "sidebar-views")?.active;
+    // An unknown shown child would leave the rail with no icon to switch from.
+    const shown = SIDEBAR_VIEWS.some((view) => view.id === active) ? active : SIDEBAR_VIEWS[0].id;
+    const select = (child) => run("layout.select", { stack: "sidebar-views", child });
+    const icon = (view) => svg(`mods/workspaces/${view.icon}.svg`).size(15);
+    // The narrow rail has room for one icon: the shown view's, which moves on to the next view.
+    const views = collapsed
+      ? SIDEBAR_VIEWS.filter((view) => view.id === shown).map((view) => this.button(`view-${view.id}`, icon(view), () => select(nextSidebarView(shown))))
+      : SIDEBAR_VIEWS.map((view) => this.button(`view-${view.id}`, icon(view), () => select(view.id))
+        .when(view.id === shown, el => el.bg(t.selected).text_color(t.foreground)));
+    return h_flex().size_full().bg(t.chrome).border_b(1).border_color(t.border).px(8).gap(4).items_center().when(collapsed, el => el.justify_center())
+      .children(views);
+  }
   render() {
     const t = theme();
     const collapsed = narrow();
@@ -55,6 +69,7 @@ export default class WorkspaceChrome extends View {
           .child(switcher.flex_1().min_w(0))
           .child(this.button("workspace-window", svg("mods/workspaces/window.svg").size(15), () => void openWorkspaceWindow(active?.id)).h(32).w(32))));
     }
+    if (props()?.views) return this.viewsRail(t, collapsed);
     if (props()?.footer) {
       const row = (id, icon, label, dim, action) => h_flex().id(id).h(28).px(8).gap(9).items_center().rounded(8)
         .text_color(dim ? t.dim : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()

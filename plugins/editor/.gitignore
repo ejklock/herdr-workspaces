@@ -1,6 +1,6 @@
 node_modules
 coverage/
-types/
+/types/
 mods/editor/*.js
 !mods/editor/main.js
 mods/editor/editor/
@@ -22,3 +22,4 @@ mods/my-changes/*.js
 mods/my-changes/list/
 mods/my-changes/*.d.ts
 mods/my-changes/jsconfig.json
+mods/my-diff/vendor/

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { currentBlock, stepsOf, stops, step, clampCursor, editorTarget, wrapsLines } from "../../src/changes/nav.ts";
+import { currentBlock, stepsOf, stops, step, clampCursor, editorTarget, wrapsLines, rulerMarks } from "../../src/changes/nav.ts";
 import type { DisplayRow } from "../../src/changes/rows.ts";
 
 const cell = { line: 1, text: "x" };
@@ -104,5 +104,47 @@ describe("wraps lines", () => {
   it("wraps lines unless the stored value is false", () => {
     assert.equal(wrapsLines(false), false);
     for (const stored of [true, undefined, null, "false", 0, {}]) assert.equal(wrapsLines(stored), true);
+  });
+});
+
+describe("overview ruler marks", () => {
+  const both = (block: number): DisplayRow => ({ kind: "change", block, left: cell, right: cell });
+  const removedOnly = (block: number): DisplayRow => ({ kind: "change", block, left: cell });
+  const rows = (length: number, at: number, ...block: DisplayRow[]): DisplayRow[] =>
+    Array.from({ length }, (_, i) => block[i - at] ?? same);
+
+  it("places a block by where it starts and sizes it by its rows", () => {
+    assert.deepEqual(rulerMarks(rows(100, 50, both(0), both(0)), 500), [{ top: 250, size: 10, kind: "changed", stop: 0 }]);
+  });
+  it("colors a block by the sides its rows have", () => {
+    assert.equal(rulerMarks(rows(10, 2, change(0)), 100)[0]?.kind, "added");
+    assert.equal(rulerMarks(rows(10, 2, removedOnly(0)), 100)[0]?.kind, "removed");
+  });
+  it("keeps a minimum mark size", () => {
+    assert.equal(rulerMarks(rows(1000, 10, change(0)), 300)[0]?.size, 3);
+  });
+  it("gives one mark per block in order, with the stop index", () => {
+    const marks = rulerMarks([change(0), same, change(1)], 30);
+    assert.deepEqual(marks.map(m => m.stop), [0, 1]);
+    assert.deepEqual(marks.map(m => m.top), [0, 20]);
+  });
+  it("separates blocks that a hidden row splits", () => {
+    assert.equal(rulerMarks([change(0), hidden(0), change(1)], 30).length, 2);
+  });
+  it("rounds the top down and the size to the nearest pixel", () => {
+    assert.deepEqual(rulerMarks([same, same, change(0)], 100), [{ top: 66, size: 33, kind: "added", stop: 0 }]);
+  });
+  it("keeps two touching blocks apart, each with its own kind", () => {
+    const marks = rulerMarks([removedOnly(0), removedOnly(0), change(1), same, same, same, same, same, same, same], 100);
+    assert.deepEqual(marks, [{ top: 0, size: 20, kind: "removed", stop: 0 }, { top: 20, size: 10, kind: "added", stop: 1 }]);
+  });
+  it("keeps a mark at the end inside the ruler", () => {
+    const marks = rulerMarks(rows(1000, 999, change(0)), 300);
+    assert.deepEqual(marks.map(m => [m.top, m.size]), [[297, 3]]);
+  });
+  it("gives no marks without change rows, height or shown rows", () => {
+    assert.deepEqual(rulerMarks([same, hidden(0)], 100), []);
+    assert.deepEqual(rulerMarks([change(0)], 0), []);
+    assert.deepEqual(rulerMarks([], 100), []);
   });
 });

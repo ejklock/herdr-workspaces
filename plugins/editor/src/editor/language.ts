@@ -8,6 +8,22 @@ export function languageFor(path: string): string {
   return LANG[ext] ?? ext;
 }
 
+const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
+
+/** A file is Markdown by its extension; a dotfile such as `.md` has none. */
+export function isMarkdown(path: string): boolean {
+  const name = baseName(path);
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && MARKDOWN_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
+
+export type FileView = "preview" | "source";
+
+/** The view a file opens in: Markdown rendered, anything else as text. */
+export function initialView(path: string): FileView {
+  return isMarkdown(path) ? "preview" : "source";
+}
+
 export function syntaxColors(t: Record<string, string>): Record<string, string> {
   const colors = {
     keyword: t["ansi5"], string: t["ansi2"], comment: t["dim"], function: t["ansi4"], type: t["ansi3"], number: t["ansi1"], constant: t["ansi6"],

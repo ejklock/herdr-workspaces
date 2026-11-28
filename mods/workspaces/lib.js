@@ -290,32 +290,23 @@ export function unplacedTerminals(store, activeId, terminals, spaces, machines) 
   });
 }
 
-const trimSlashes = (path) => path.replace(/\/+$/, "");
-const underFolder = (cwd, folder) => folder !== "" && (cwd === folder || cwd.startsWith(`${folder}/`));
-
-/**
- * The spaces a terminal can be placed in, those on its own machine: its parent's space first, then spaces whose
- * folder holds its cwd (longest folder first), then the rest in `spaces` order.
- */
-export function placeOptions(terminal, terminals, spaces) {
-  const machine = machineOf(terminal.address);
-  const own = spaces.filter((s) => (s.machine ?? null) === machine);
-  const parent = terminals.find((t) => t.address === terminal.parent);
-  const parentLabel = parent && machineOf(parent.address) === machine ? spaceLabel(parent) : undefined;
-  const first = own.filter((s) => parentLabel !== undefined && s.id === ownId(machine, parentLabel));
-  const cwd = trimSlashes(terminal.cwd ?? "");
-  const matching = own
-    .filter((s) => underFolder(cwd, trimSlashes(s.folder ?? "")))
-    .sort((a, b) => trimSlashes(b.folder).length - trimSlashes(a.folder).length);
-  return [...new Set([...first, ...matching, ...own])];
-}
-
 /** The `hc` arguments that place a terminal in a space by label, or undefined when the space is on another machine. */
 export function placeLabelArgs(terminal, space) {
   const machine = machineOf(terminal.address);
   if ((space.machine ?? null) !== machine) return undefined;
   const prefix = machine === null ? "" : `${machine}/`;
   return ["label", terminal.address, `herdr.space=${space.id.slice(prefix.length)}`];
+}
+
+/** The shown space a terminal can be added to: undefined when none is shown or it is on another machine. */
+export function addTarget(terminal, spaces) {
+  const shown = spaces.find((s) => s.active);
+  return shown && placeLabelArgs(terminal, shown) ? shown : undefined;
+}
+
+/** The `hc` arguments that remove a terminal's space label. */
+export function unplaceLabelArgs(terminal) {
+  return ["label", terminal.address, "herdr.space="];
 }
 
 /** The machine headers the sidebar draws: other machines that hold a listed space, sorted; never a core. */
@@ -663,4 +654,17 @@ export function moveToGroup(store, activeId, spaces, spaceId, groupId) {
   if (group.workspace !== activeWorkspace(store, activeId)?.id) return { error: "That group belongs to another workspace." };
   if (!visibleSpaces(store, activeId, spaces).some((s) => s.id === spaceId)) return { error: "That space is not listed in this workspace." };
   return { store: withGroups(store, groupsOf(store), { ...rest, [spaceId]: groupId }) };
+}
+
+/** The views stacked in the left sidebar, in the order the rail lists them; icons are the shipped mods/workspaces/<icon>.svg files. */
+export const SIDEBAR_VIEWS = [
+  { id: "sidebar-spaces", label: "Spaces", icon: "layers" },
+  { id: "files", label: "Files", icon: "files" },
+  { id: "changes", label: "Changes", icon: "git-compare" },
+];
+
+/** The view after `active`, wrapping at the end; an unknown or missing id gives the first. */
+export function nextSidebarView(active) {
+  const index = SIDEBAR_VIEWS.findIndex((view) => view.id === active);
+  return SIDEBAR_VIEWS[(index + 1) % SIDEBAR_VIEWS.length].id;
 }

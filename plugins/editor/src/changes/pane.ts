@@ -4,9 +4,11 @@ import type { Context, AsyncContext, Element } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
 import { props, shared, setShared, focused, panes, run, exec, readTextFile, watchFolder, theme, settings } from "herdr";
 import { targetToShow, differsFrom, reloadsOnTick, displayRows, loadView, type DiffTarget, type DisplayRow, type View as DiffView } from "./rows.ts";
-import { stops, step, currentBlock, stepsOf, clampCursor, editorTarget, wrapsLines, type EditorClaims } from "./nav.ts";
+import { stops, step, currentBlock, rulerMarks, type RulerMark, stepsOf, clampCursor, editorTarget, wrapsLines, type EditorClaims } from "./nav.ts";
 import type { Row, Cell } from "./diff.ts";
-import { rowSpans, wrapPieces, type Span } from "./words.ts";
+import { rowSpans, wrapPieces, mergeSpans, type Segment, type Span } from "./words.ts";
+import { syntaxLines, syntaxPalette, sideTexts, type SyntaxSpan } from "./syntax.ts";
+import hljs from "../vendor/highlight.js";
 import { diffTints, type DiffTints, type Tint } from "./tints.ts";
 
 type Hex = `#${string}`;
@@ -16,6 +18,12 @@ const TARGETS_KEY = "my-diff.targets";
 const WRAP_KEY = "my-diff.wrap";
 const CONTEXT = 3;
 const ROW_HEIGHT = 20;
+const BAND_WIDTH = 18;
+const BUTTON_SIZE = 26;
+const RULER_WIDTH = 12;
+
+type Palette = ReturnType<typeof syntaxPalette>;
+type Tokens = { old: SyntaxSpan[][]; new: SyntaxSpan[][] };
 
 const hex = (t: Colors, name: string): Hex => { const v = t[name]; return v?.startsWith("#") ? (v as Hex) : "#808080"; };
 
@@ -30,8 +38,10 @@ export default class Diff extends View {
   private loading = false;
   private scroller: VirtualListScrollHandle | undefined;
   private cursor: number | undefined;
+  private bodyHeight = 0;
   private deleted = false;
   private notice: string | undefined;
+  private tokens: Tokens = { old: [], new: [] };
 
   override init(_props: unknown, cx: AsyncContext): void {
     this.scroller = VirtualListScrollHandle.new();
@@ -71,20 +81,32 @@ export default class Diff extends View {
 
   private apply(view: DiffView): void {
     this.deleted = view.deleted === true;
-    if (view.kind === "message") { this.rows = []; this.shown = []; this.message = view.text; this.cursor = undefined; return; }
+    if (view.kind === "message") { this.rows = []; this.shown = []; this.tokens = { old: [], new: [] }; this.message = view.text; this.cursor = undefined; return; }
     this.rows = view.rows;
+    const text = sideTexts(view.rows);
+    const path = this.target?.path ?? "";
+    this.tokens = { old: syntaxLines(hljs, text.old, path), new: syntaxLines(hljs, text.new, path) };
     this.message = view.rows.length === 0 ? "Empty file" : undefined;
     this.fold();
     this.cursor = clampCursor(this.cursor, stops(this.shown).length);
   }
 
   private move(direction: "previous" | "next", cx: Context): void {
-    const starts = stops(this.shown);
-    const cursor = step(this.cursor, starts.length, direction);
-    const stop = cursor === undefined ? undefined : starts[cursor];
-    if (cursor === undefined || stop === undefined) return;
+    const cursor = step(this.cursor, stops(this.shown).length, direction);
+    if (cursor !== undefined) this.goTo(cursor, cx);
+  }
+
+  private goTo(cursor: number, cx: Context): void {
+    const stop = stops(this.shown)[cursor];
+    if (stop === undefined) return;
     this.cursor = cursor;
     this.scroller?.scroll_to_item(stop, "center");
+    cx.notify();
+  }
+
+  private resized(height: number, cx: Context): void {
+    if (height === this.bodyHeight) return;
+    this.bodyHeight = height;
     cx.notify();
   }
 
@@ -111,26 +133,43 @@ export default class Diff extends View {
     cx.notify();
   }
 
-  private button(id: string, label: string, enabled: boolean, t: Colors, click: (cx: Context) => void, background = "raised"): Element {
-    return div().id(id).h(24).px(10).flex_none().flex().items_center().rounded(6).bg(hex(t, background))
+  private button(id: string, glyph: string, enabled: boolean, t: Colors, click: (cx: Context) => void, background = "raised"): Element {
+    return div().id(id).w(BUTTON_SIZE).h(BUTTON_SIZE).flex_none().flex().items_center().justify_center().rounded(6).bg(hex(t, background))
       .text_color(enabled ? hex(t, "foreground") : hex(t, "dim"))
       .when(enabled, el => el.cursor_pointer().hover(s => s.bg(hex(t, "hover"))).on_click((_e, cx) => click(cx)))
-      .child(label);
+      .child(glyph);
+  }
+
+  private title(t: Colors): Element {
+    const path = this.target?.path ?? "Diff";
+    const slash = path.lastIndexOf("/");
+    const title = h_flex().flex_1().min_w(0).overflow_hidden();
+    if (slash >= 0) title.child(div().min_w(0).truncate().text_color(hex(t, "dim")).child(path.slice(0, slash + 1)));
+    return title.child(div().flex_none().whitespace_nowrap().font_bold().child(path.slice(slash + 1)));
+  }
+
+  private counts(t: Colors): Element[] {
+    const added = this.rows.filter(row => row.kind === "change" && row.right).length;
+    const removed = this.rows.filter(row => row.kind === "change" && row.left).length;
+    return [
+      div().flex_none().text_color(hex(t, "ansi2")).child(`+${added}`),
+      div().flex_none().text_color(hex(t, "ansi1")).child(`\u2212${removed}`),
+    ];
   }
 
   private header(t: Colors): Element {
     const starts = stops(this.shown);
     const can = stepsOf(this.cursor, starts.length);
     const position = this.cursor === undefined ? `${starts.length} ${starts.length === 1 ? "change" : "changes"}` : `${this.cursor + 1}/${starts.length}`;
-    const bar = h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(hex(t, "border"))
-      .child(div().flex_1().min_w(0).truncate().child(this.target?.path ?? "Diff"));
+    const bar = h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(hex(t, "border")).child(this.title(t));
     if (this.message === undefined) {
-      bar.child(div().flex_none().text_color(hex(t, "dim")).child(position))
-        .child(this.button("diff-previous", "Previous", can.previous, t, cx => this.move("previous", cx)))
-        .child(this.button("diff-next", "Next", can.next, t, cx => this.move("next", cx)))
-        .child(this.button("diff-wrap", "Wrap", true, t, cx => this.toggleWrap(cx), wrapsLines(shared(WRAP_KEY)) ? "selected" : "raised"));
+      bar.children(this.counts(t))
+        .child(div().flex_none().text_color(hex(t, "dim")).child(position))
+        .child(this.button("diff-previous", "\u2191", can.previous, t, cx => this.move("previous", cx)))
+        .child(this.button("diff-next", "\u2193", can.next, t, cx => this.move("next", cx)))
+        .child(this.button("diff-wrap", "\u23CE", true, t, cx => this.toggleWrap(cx), wrapsLines(shared(WRAP_KEY)) ? "selected" : "raised"));
     }
-    if (this.target && !this.deleted) bar.child(this.button("diff-open", "Open in editor", true, t, cx => this.openInEditor(cx)));
+    if (this.target && !this.deleted) bar.child(this.button("diff-open", "\u2197", true, t, cx => this.openInEditor(cx)));
     return bar;
   }
 
@@ -158,44 +197,65 @@ export default class Diff extends View {
     cx.notify();
   }
 
-  private cell(cell: Cell | undefined, tint: Tint | undefined, filler: Hex, t: Colors, wrap: boolean, spans?: Span[]): Element[] {
-    const wash = tint && (cell ? tint.line : filler);
+  private spansOf(cell: Cell | undefined, side: SyntaxSpan[][]): SyntaxSpan[] {
+    if (!cell) return [];
+    const spans = side[cell.line - 1];
+    return spans && spans.map(span => span.text).join("") === cell.text ? spans : cell.text === "" ? [] : [{ text: cell.text }];
+  }
+
+  private cell(cell: Cell | undefined, side: SyntaxSpan[][], marker: string, tint: Tint | undefined, words: Span[] | undefined, t: Colors, palette: Palette, wrap: boolean): Element[] {
     const shade = (el: Element): Element => {
-      const washed = wash ? el.bg(wash) : el;
+      const washed = tint && cell ? el.bg(tint.line) : el;
       return wrap ? washed.self_stretch() : washed;
     };
-    const text = spans && tint
-      ? this.words(spans, tint, wrap)
-      : wrap ? div().flex_1().min_w(0).px(6).whitespace_normal().child(cell?.text ?? "") : div().flex_1().min_w(0).px(6).truncate().child(cell?.text ?? "");
-    return [
-      shade(div().w(48).flex_none().px(6).text_right().text_color(hex(t, "dim")).child(cell ? String(cell.line) : "")),
-      shade(text),
-    ];
+    const number = h_flex().w(58).flex_none().px(6).gap(4).text_color(hex(t, "dim"))
+      .child(div().flex_1().text_right().child(cell ? String(cell.line) : ""))
+      .child(div().w(8).flex_none().child(cell ? marker : ""));
+    return [shade(number), shade(this.segments(mergeSpans(this.spansOf(cell, side), tint ? words : undefined), tint, t, palette, wrap))];
   }
 
-  private words(spans: Span[], tint: Tint, wrap: boolean): Element {
-    if (!wrap) return h_flex().flex_1().min_w(0).px(6).overflow_hidden().children(spans.map((s) => this.span(s, tint)));
-    return h_flex().flex_1().min_w(0).px(6).flex_wrap().overflow_hidden().children(wrapPieces(spans).map((s) => this.span(s, tint)));
+  private segments(segments: Segment[], tint: Tint | undefined, t: Colors, palette: Palette, wrap: boolean): Element {
+    const shown = wrap ? wrapPieces(segments) : segments;
+    const row = h_flex().flex_1().min_w(0).px(6).overflow_hidden().children(shown.map(segment => this.segment(segment, tint, t, palette)));
+    return wrap ? row.flex_wrap() : row;
   }
 
-  private span(span: Span, tint: Tint): Element {
-    const el = div().flex_none().whitespace_nowrap().child(span.text);
-    return span.changed ? el.bg(tint.word) : el;
+  private segment(segment: Segment, tint: Tint | undefined, t: Colors, palette: Palette): Element {
+    const color = (segment.color && palette[segment.color]) ?? hex(t, "foreground");
+    const el = div().flex_none().whitespace_nowrap().text_color(color).child(segment.text);
+    return segment.changed && tint ? el.bg(tint.word) : el;
   }
 
-  private line(row: DisplayRow, t: Colors, tints: DiffTints, current: number | undefined, wrap: boolean): Element {
-    if (row.kind === "hidden") {
-      return div().w_full().h(ROW_HEIGHT).flex_none().px(12).bg(hex(t, "raised")).text_color(hex(t, "dim")).cursor_pointer().child(row.label);
-    }
+  private hidden(row: Extract<DisplayRow, { kind: "hidden" }>, t: Colors): Element {
+    return div().w_full().h(ROW_HEIGHT).flex_none().px(12).bg(hex(t, "raised")).text_color(hex(t, "dim")).cursor_pointer().child(`\u2195 ${row.label}`);
+  }
+
+  private band(row: DisplayRow, tints: DiffTints, wrap: boolean): Element {
+    const band = wrap ? div().w(BAND_WIDTH).self_stretch().flex_none() : div().w(BAND_WIDTH).h_full().flex_none();
+    if (row.kind !== "change") return band;
+    return band.bg((row.right ? tints.added : tints.removed).line);
+  }
+
+  private line(row: DisplayRow, t: Colors, tints: DiffTints, palette: Palette, current: number | undefined, wrap: boolean): Element {
+    if (row.kind === "hidden") return this.hidden(row, t);
     const changed = row.kind === "change";
     const words = rowSpans(row);
-    const [leftNo, leftText] = this.cell(row.left, changed ? tints.removed : undefined, tints.filler, t, wrap, words?.left) as [Element, Element];
-    const [rightNo, rightText] = this.cell(row.right, changed ? tints.added : undefined, tints.filler, t, wrap, words?.right) as [Element, Element];
+    const [leftNo, leftText] = this.cell(row.left, this.tokens.old, changed ? "\u2212" : "", changed ? tints.removed : undefined, words?.left, t, palette, wrap) as [Element, Element];
+    const [rightNo, rightText] = this.cell(row.right, this.tokens.new, changed ? "+" : "", changed ? tints.added : undefined, words?.right, t, palette, wrap) as [Element, Element];
     const bar = wrap ? div().w(3).self_stretch().flex_none() : div().w(3).h_full().flex_none();
     const marked = changed && row.block === current;
     const columns = h_flex().w_full().flex_none();
     return (wrap ? columns.min_h(ROW_HEIGHT).items_start() : columns.h(ROW_HEIGHT))
-      .child(marked ? bar.bg(hex(t, "accent")) : bar).child(leftNo).child(leftText).child(rightNo).child(rightText);
+      .child(marked ? bar.bg(hex(t, "accent")) : bar).child(leftNo).child(leftText).child(this.band(row, tints, wrap)).child(rightNo).child(rightText);
+  }
+
+  private ruler(marks: readonly RulerMark[], current: number | undefined, t: Colors): Element {
+    const color = { added: "ansi2", removed: "ansi1", changed: "blocked" } as const;
+    return div().w(RULER_WIDTH).h_full().flex_none().relative().bg(hex(t, "surface")).border_l(1).border_color(hex(t, "border"))
+      .children(marks.map(mark => div().id(`diff-mark-${mark.stop}`).absolute().top(mark.top).left(1).w(RULER_WIDTH - 2).h(mark.size)
+        .bg(hex(t, color[mark.kind])).cursor_pointer()
+        .when(mark.stop === current, el => el.border_1().border_color(hex(t, "foreground")))
+        .on_click((_e, cx) => this.goTo(mark.stop, cx))));
   }
 
   private keyOf(i: number): string {
@@ -207,18 +267,22 @@ export default class Diff extends View {
     this.follow(cx);
     const t = theme();
     const tints = diffTints(t);
+    const palette = syntaxPalette(t);
     const current = currentBlock(this.shown, this.cursor);
     const wrap = wrapsLines(shared(WRAP_KEY));
     const font = String(settings()["font_family"] ?? "JetBrains Mono");
+    const marks = this.message === undefined ? rulerMarks(this.shown, this.bodyHeight) : [];
     const body = this.message === undefined
-      ? div().flex_1().min_h(0).relative()
+      ? h_flex().id("diff-body").flex_1().min_h(0).on_size_change((size, cx) => this.resized(size.height, cx))
+        .child(div().flex_1().min_w(0).h_full().relative()
         .child(wrap
-          ? list("diff-rows-wrap", this.shown.length, i => this.keyOf(i), i => this.line(this.shown[i]!, t, tints, current, true))
+          ? list("diff-rows-wrap", this.shown.length, i => this.keyOf(i), i => this.line(this.shown[i]!, t, tints, palette, current, true))
             .on_item_click((key, cx) => this.expand(key, cx)).track_scroll(this.scroller!).size_full()
           : v_virtual_list("diff-rows", this.shown.length, ROW_HEIGHT, i => this.keyOf(i),
-            range => this.shown.slice(range.start, range.end).map(row => this.line(row, t, tints, current, false)))
+            range => this.shown.slice(range.start, range.end).map(row => this.line(row, t, tints, palette, current, false)))
             .on_item_click((key, cx) => this.expand(key, cx)).track_scroll(this.scroller!).size_full())
-        .child(Scrollbar.vertical(wrap ? "diff-rows-wrap" : "diff-rows").viewport_from_layout().absolute().inset_0())
+        .child(Scrollbar.vertical(wrap ? "diff-rows-wrap" : "diff-rows").viewport_from_layout().absolute().inset_0()))
+        .child(this.ruler(marks, this.cursor, t))
       : div().p(12).text_color(hex(t, "dim")).child(this.message);
     return v_flex().id("diff").size_full().min_h(0).overflow_hidden().bg(hex(t, "background")).text_color(hex(t, "foreground")).text_size(12).font_family(font)
       .child(this.header(t))

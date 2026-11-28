@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { editorFontSize, syntaxColors } from "../../src/editor/language.ts";
+import { editorFontSize, initialView, isMarkdown, syntaxColors } from "../../src/editor/language.ts";
 
 const graphite: Record<string, string> = {
   ansi1: "#e06c75", ansi2: "#98c379", ansi3: "#e5c07b", ansi4: "#61afef", ansi5: "#c678dd", ansi6: "#56b6c2",
@@ -48,5 +48,23 @@ describe("editorFontSize", () => {
     const bad: unknown[] = [0, -3, NaN, Infinity, "14", null];
     assert.equal(editorFontSize({}), 12);
     for (const value of bad) assert.equal(editorFontSize({ font_size: value }), 12, String(value));
+  });
+});
+
+describe("markdown files", () => {
+  const cases: [string, boolean][] = [
+    ["/r/README.md", true], ["/r/notes.MARKDOWN", true], ["/r/Doc.Md", true], ["/r/README.en.md", true],
+    ["/r/x.mdx", false], ["/r/a.md.txt", false], ["/r/.md", false], ["/r/md", false], ["", false],
+  ];
+  for (const [path, expected] of cases) {
+    it(`markdown: ${JSON.stringify(path)} is${expected ? "" : " not"} Markdown`, () => {
+      assert.equal(isMarkdown(path), expected);
+    });
+  }
+
+  it("markdown: a Markdown file opens in preview and every other file in source", () => {
+    assert.equal(initialView("/r/README.md"), "preview");
+    assert.equal(initialView("/r/main.ts"), "source");
+    assert.equal(initialView("/r/.md"), "source");
   });
 });

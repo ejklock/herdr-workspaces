@@ -16,7 +16,7 @@ marker=.installed-from
 # install wrote the plugin's absolute path instead; only these installers ever wrote the file.
 marker_text=herdr-workspaces
 
-for built in editor/editor/main.js my-files/files/main.js my-changes/list/main.js my-diff/changes/pane.js; do
+for built in editor/editor/main.js my-files/files/main.js my-changes/list/main.js my-diff/changes/pane.js my-diff/vendor/highlight.js; do
   if [ ! -f "$repo/mods/$built" ]; then
     echo "the build output $repo/mods/$built is missing: run npm run build first" >&2
     exit 1
@@ -97,4 +97,4 @@ mkdir -p "$home/mods"
 install_mod editor editor format
 install_mod my-files files icons
 install_mod my-changes list
-install_mod my-diff changes
+install_mod my-diff changes vendor
