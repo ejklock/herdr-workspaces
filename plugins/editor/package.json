@@ -5,7 +5,7 @@
   "description": "An editable file editor pane for the Herdr desktop app",
   "type": "module",
   "scripts": {
-    "prebuild": "bin/copy-types",
+    "prebuild": "bin/copy-types && bin/copy-highlight",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.files.json && tsc -p tsconfig.diff.json && tsc -p tsconfig.list.json",
     "install:files": "npm run build && bin/install-files \"$HOME/.config/herdr-app\"",
     "pretypecheck": "bin/copy-types",
@@ -14,6 +14,7 @@
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout && se-gates qg coverage-receipt"
   },
   "devDependencies": {
+    "@highlightjs/cdn-assets": "11.12.0",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2"
   }

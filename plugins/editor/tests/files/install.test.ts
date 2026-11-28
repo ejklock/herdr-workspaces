@@ -45,6 +45,8 @@ beforeEach(() => {
   write(join(repo, "mods", "my-changes", "gpui-kit.d.ts"), "not shipped");
   write(join(repo, "mods", "my-diff", "changes", "pane.js"), "built changes/pane.js");
   write(join(repo, "mods", "my-diff", "changes", "pane.test.js"), "not shipped");
+  write(join(repo, "mods", "my-diff", "vendor", "highlight.js"), "vendored highlight.js");
+  write(join(repo, "mods", "my-diff", "vendor", "LICENSE-highlight.js.txt"), "BSD-3-Clause");
   mkdirSync(home, { recursive: true });
 });
 
@@ -366,7 +368,7 @@ describe("installing my-changes and my-diff", () => {
     assert.equal(run.status, 0, run.stderr);
     for (const mod of ["my-changes", "my-diff"]) assert.equal(lstatSync(modTarget(mod)()).isSymbolicLink(), false);
     assert.deepEqual(tree(modTarget("my-changes")()), [".installed-from", "list/main.js", "main.js", "mod.json"].sort());
-    assert.deepEqual(tree(modTarget("my-diff")()), [".installed-from", "changes/pane.js", "main.js", "mod.json"].sort());
+    assert.deepEqual(tree(modTarget("my-diff")()), [".installed-from", "changes/pane.js", "main.js", "mod.json", "vendor/LICENSE-highlight.js.txt", "vendor/highlight.js"].sort());
     assert.equal(readFileSync(modTarget("my-changes")(".installed-from"), "utf8"), "herdr-workspaces");
     assert.equal(readFileSync(modTarget("my-diff")(".installed-from"), "utf8"), "herdr-workspaces");
   });
@@ -380,6 +382,16 @@ describe("installing my-changes and my-diff", () => {
     assert.equal(install(home).status, 0);
     assert.equal(readFileSync(modTarget("my-changes")("list/main.js"), "utf8"), "rebuilt");
     assert.equal(existsSync(modTarget("my-diff")("changes/extra.js")), false);
+  });
+
+  it("refuses when the vendored highlighter is missing from the build output, names npm run build and writes nothing", () => {
+    const vendored = join(repo, "mods", "my-diff", "vendor", "highlight.js");
+    rmSync(vendored);
+    const run = install(home);
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /vendor\/highlight\.js/);
+    assert.match(run.stderr, /npm run build/);
+    assert.equal(existsSync(join(home, "mods")), false);
   });
 
   it("refuses when either build output is missing and writes nothing", () => {
@@ -473,6 +485,7 @@ describe("which marker counts as the project's", () => {
     for (const mod of ["my-changes", "my-diff"]) for (const name of ["main.js", "mod.json"]) write(join(second, "mods", mod, name), "second");
     write(join(second, "mods", "my-changes", "list", "main.js"), "second");
     write(join(second, "mods", "my-diff", "changes", "pane.js"), "second");
+    write(join(second, "mods", "my-diff", "vendor", "highlight.js"), "second");
     const run = spawnSync("sh", [join(second, "bin", "install-files"), home], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
     assert.equal(readFileSync(target("main.js"), "utf8"), "second");

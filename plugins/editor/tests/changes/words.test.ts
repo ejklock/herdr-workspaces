@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { wordSpans, rowSpans, wrapPieces, type Span } from "../../src/changes/words.ts";
+import { wordSpans, rowSpans, wrapPieces, mergeSpans, type Span } from "../../src/changes/words.ts";
 import type { DisplayRow } from "../../src/changes/rows.ts";
+import type { SyntaxSpan } from "../../src/changes/syntax.ts";
 
 const joined = (spans: Span[]): string => spans.map((s) => s.text).join("");
 const changed = (spans: Span[]): string[] => spans.filter((s) => s.changed).map((s) => s.text);
@@ -158,6 +159,18 @@ describe("rowSpans", () => {
 });
 
 describe("wrap pieces", () => {
+  it("wrap pieces never split a character outside the basic plane across two chunks", () => {
+    const text = "a" + "\u{1F600}".repeat(30);
+    const pieces = wrapPieces([{ text, changed: false }]);
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    assert.equal(pieces.map(p => p.text).join(""), text);
+    for (const piece of pieces) {
+      assert.ok(!lone.test(piece.text), JSON.stringify(piece.text));
+      assert.ok(Array.from(piece.text).length <= 40);
+    }
+    assert.deepEqual(pieces.map(p => Array.from(p.text).length), [31]);
+  });
+
   const pieces = (spans: Span[]): [string, boolean][] => wrapPieces(spans).map((s) => [s.text, s.changed]);
 
   it("wrap pieces break an unchanged span after each whitespace run", () => {
@@ -168,6 +181,20 @@ describe("wrap pieces", () => {
   });
   it("wrap pieces split leading indentation from the first word", () => {
     assert.deepEqual(pieces([{ text: "    const x", changed: false }]), [["    ", false], ["const ", false], ["x", false]]);
+  });
+  it("wrap pieces cut a 100-character token into chunks of 40, 40 and 20", () => {
+    assert.deepEqual(pieces([{ text: "x".repeat(100), changed: false }]).map(([t]) => t.length), [40, 40, 20]);
+  });
+  it("wrap pieces carry color and changed flag to every chunk and join back to the line", () => {
+    const spans = [{ text: `ab ${"y".repeat(90)}`, changed: true, color: "string" as const }];
+    const result = wrapPieces(spans);
+    assert.deepEqual(result.map((s) => s.text.length), [3, 40, 40, 10]);
+    assert.ok(result.every((s) => s.changed && s.color === "string"));
+    assert.equal(result.map((s) => s.text).join(""), spans[0]?.text);
+  });
+  it("wrap pieces keep a 40-character piece whole and still break after whitespace", () => {
+    assert.deepEqual(pieces([{ text: "z".repeat(40), changed: false }]).map(([t]) => t.length), [40]);
+    assert.deepEqual(pieces([{ text: "ab cd", changed: false }]).map(([t]) => t), ["ab ", "cd"]);
   });
   it("wrap pieces leave a span with no whitespace whole", () => {
     assert.deepEqual(pieces([{ text: "word", changed: true }]), [["word", true]]);
@@ -183,5 +210,57 @@ describe("wrap pieces", () => {
   it("wrap pieces join back to the original line", () => {
     const spans = [{ text: "  x = ", changed: false }, { text: "foo(a,  b)\t", changed: true }, { text: "end", changed: false }];
     assert.equal(joined(wrapPieces(spans)), joined(spans));
+  });
+});
+
+describe("mergeSpans", () => {
+  const syntax: SyntaxSpan[] = [
+    { text: "const ", color: "keyword" }, { text: "x", color: "variable" }, { text: " = ", color: "operator" }, { text: "1", color: "number" },
+  ];
+
+  it("merges syntax and word spans into segments cut at every boundary of either", () => {
+    const words: Span[] = [{ text: "const x = ", changed: false }, { text: "1", changed: true }];
+    assert.deepEqual(mergeSpans(syntax, words), [
+      { text: "const ", color: "keyword", changed: false },
+      { text: "x", color: "variable", changed: false },
+      { text: " = ", color: "operator", changed: false },
+      { text: "1", color: "number", changed: true },
+    ]);
+  });
+
+  it("merges a word boundary inside a syntax span into two segments that keep the color", () => {
+    const words: Span[] = [{ text: "con", changed: false }, { text: "st x = 1", changed: true }];
+    const segments = mergeSpans(syntax, words);
+    assert.deepEqual(segments.slice(0, 2), [
+      { text: "con", color: "keyword", changed: false },
+      { text: "st ", color: "keyword", changed: true },
+    ]);
+    assert.equal(segments.map((s) => s.text).join(""), "const x = 1");
+  });
+
+  it("merges with no word spans into unchanged segments", () => {
+    const segments = mergeSpans(syntax, undefined);
+    assert.deepEqual(segments.map((s) => s.text), ["const ", "x", " = ", "1"]);
+    assert.ok(segments.every((s) => !s.changed));
+  });
+
+  it("merges an empty line into no changed segment and no text", () => {
+    assert.equal(mergeSpans([], []).map((s) => s.text).join(""), "");
+    assert.ok(mergeSpans([], undefined).every((s) => !s.changed));
+  });
+
+  it("merges to segments whose texts join to the line", () => {
+    const words: Span[] = [{ text: "c", changed: true }, { text: "onst x", changed: false }, { text: " = 1", changed: true }];
+    assert.equal(mergeSpans(syntax, words).map((s) => s.text).join(""), "const x = 1");
+  });
+
+  it("merges word spans that do not join to the line by falling back to the syntax spans", () => {
+    const segments = mergeSpans(syntax, [{ text: "other", changed: true }]);
+    assert.deepEqual(segments.map((s) => s.text), ["const ", "x", " = ", "1"]);
+    assert.ok(segments.every((s) => !s.changed));
+  });
+
+  it("merges a colorless span without a color key", () => {
+    assert.deepEqual(mergeSpans([{ text: "ab" }], [{ text: "ab", changed: true }]), [{ text: "ab", changed: true }]);
   });
 });

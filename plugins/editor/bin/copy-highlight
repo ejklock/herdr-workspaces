@@ -1,0 +1,42 @@
+#!/bin/sh
+# Copies highlight.js's self-contained ES build and its license from the @highlightjs/cdn-assets dev
+# dependency into this plugin's git-ignored mods/my-diff/vendor/ folder: the diff pane loads the module
+# from beside its own files, and the license travels with it.
+# The package is resolved through node from this plugin's folder; nothing is written unless both files
+# are readable and neither target is a folder, and vendor/ is not a symlink. The copy is staged, so a
+# failure during it leaves vendor/ as it was.
+# HIGHLIGHT_PACKAGE replaces the package name; it is a test hook for proving the missing-package refusal.
+# Usage: bin/copy-highlight
+set -eu
+
+plugin=$(cd "$(dirname "$0")/.." && pwd -P)
+vendor="$plugin/mods/my-diff/vendor"
+HIGHLIGHT_PACKAGE=${HIGHLIGHT_PACKAGE:-@highlightjs/cdn-assets}
+export HIGHLIGHT_PACKAGE
+package=$HIGHLIGHT_PACKAGE
+
+refuse() {
+  echo "refusing: $1" >&2
+  exit 1
+}
+
+manifest=$(cd "$plugin" && node -p "require.resolve(process.env.HIGHLIGHT_PACKAGE + '/package.json')" 2>/dev/null) ||
+  refuse "$package is not installed (run npm install at the repository root)"
+root=$(dirname "$manifest")
+
+# Each line: the file in the package, then its name in vendor/.
+sources="es/highlight.js highlight.js
+LICENSE LICENSE-highlight.js.txt"
+
+echo "$sources" | while read -r from to; do
+  [ -f "$root/$from" ] || refuse "$root/$from is not a file"
+  [ -r "$root/$from" ] || refuse "$root/$from is not readable"
+  [ ! -d "$vendor/$to" ] || refuse "$vendor/$to is a folder and nothing is moved into it"
+done
+if [ -L "$vendor" ]; then refuse "$vendor is a symlink and nothing is written through it"; fi
+
+mkdir -p "$vendor"
+stage=$(mktemp -d "$vendor/.stage.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+echo "$sources" | while read -r from to; do cp -L "$root/$from" "$stage/$to"; done
+echo "$sources" | while read -r from to; do mv -f "$stage/$to" "$vendor/$to"; done
