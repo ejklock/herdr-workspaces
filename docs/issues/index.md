@@ -4,10 +4,6 @@
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
 * [0018 — Install test needs herdr.d.ts in the real app home](0018-install-test-needs-herdr-d-ts-in-the-real-app-home.md) - open
-* [0019 — Changes and Files move to a stack of views in the left sidebar](0019-changes-and-files-move-to-a-stack-of-views-in-the-left-sidebar.md) - open
-* [0020 — Open files show Markdown rendered and images](0020-open-files-show-markdown-rendered-and-images.md) - open
-* [0021 — Diff pane in split view with syntax colors, connector band and overview ruler](0021-diff-pane-in-split-view-with-syntax-colors-connector-band-and-overview-ruler.md) - open
-* [0022 — Unplaced terminals get add and close icons; placed ones can leave their space](0022-unplaced-terminals-get-add-and-close-icons-placed-ones-can-leave-their-space.md) - open
 
 ## Closed
 
@@ -27,3 +23,7 @@
 * [0015 — SSH machine can be a workspace's core](0015-ssh-machine-can-be-a-workspace-s-core.md) - closed
 * [0016 — Tab bar uses the auto-tabs mod when the app home has it](0016-tab-bar-uses-the-auto-tabs-mod-when-the-app-home-has-it.md) - closed
 * [0017 — Terminals with no space are invisible in the sidebar](0017-terminals-with-no-space-are-invisible-in-the-sidebar.md) - closed
+* [0019 — Changes and Files move to a stack of views in the left sidebar](0019-changes-and-files-move-to-a-stack-of-views-in-the-left-sidebar.md) - closed
+* [0020 — Open files show Markdown rendered and images](0020-open-files-show-markdown-rendered-and-images.md) - closed
+* [0021 — Diff pane in split view with syntax colors, connector band and overview ruler](0021-diff-pane-in-split-view-with-syntax-colors-connector-band-and-overview-ruler.md) - closed
+* [0022 — Unplaced terminals get add and close icons; placed ones can leave their space](0022-unplaced-terminals-get-add-and-close-icons-placed-ones-can-leave-their-space.md) - closed

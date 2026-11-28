@@ -2,7 +2,7 @@
 type: Issue
 title: Changes and Files move to a stack of views in the left sidebar
 description: Moves Changes and Files from the right panel into a VS Code-style stack of views in the left sidebar.
-status: open
+status: closed
 timestamp: 2026-11-28T00:50:15Z
 ---
 
@@ -36,3 +36,7 @@ On 2026-11-27 the owner asked for a stack on the left, like VS Code's side bar, 
 ### Plan
 
 - S1: the left sidebar shows a row of view icons (Spaces, Files, Changes) over a stack of those views, and the right `panel` column is gone | files: layouts/Workspaces.json, mods/workspaces/chrome.js, mods/workspaces/lib.js, mods/workspaces/lib.test.js, RECIPE.md, README.md | after: none
+
+### Outcome
+
+Shipped in #19 (8e291ce). The left sidebar shows the `sidebar-views-bar` icon row (Spaces, Files, Changes) over the `sidebar-views` stack, and the right `panel` column is gone; in the narrow rail the shown view's icon cycles to the next view, falling back to the first view for an unknown shown child. `node --test mods` is green (214) and the installer test expects the stack's default child. Not verified: the sidebar on screen in the owner's app, which needs `bin/install` into the real app home. The tab bar's Files and Changes buttons now have no target in this layout, by the owner's choice.
