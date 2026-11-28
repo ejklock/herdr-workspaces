@@ -2,7 +2,7 @@
 type: Issue
 title: Diff pane in split view with syntax colors, connector band and overview ruler
 description: Redesigns the my-diff pane as proposal C with the editor's syntax colors, a connector band and an overview ruler.
-status: open
+status: closed
 timestamp: 2026-11-28T01:47:05Z
 ---
 
@@ -40,3 +40,7 @@ On 2026-11-27 the owner found the my-diff pane generic and hard to read (pane ti
 - Changed rows carry `−`/`+` beside the line number; hidden runs show "N hidden lines" with a chevron and expand on click; the band between halves is tinted per block.
 - The ruler marks every change block, and a click scrolls to it.
 - `npm test` in `plugins/editor` is green.
+
+### Outcome
+
+Shipped in #19 (8e291ce). The build vendors highlight.js 11.12.0 into the my-diff mod (ADR 0004); rows draw syntax colors in the editor's palette under the changed-word tint, `−`/`+` on changed rows, "↕ N hidden lines" rows and a band tinted per row; the header is compact and a right-edge ruler marks each change block and scrolls to it. `node --test` in plugins/editor is green (635). Not verified: highlight.js running in Herdr's engine, the look on screen, and `npm run build` on macOS.

@@ -2,7 +2,7 @@
 type: Issue
 title: Open files show Markdown rendered and images
 description: Files opened from the Files panel show Markdown rendered with a Preview / Source switch, and images as images.
-status: open
+status: closed
 timestamp: 2026-11-28T01:14:30Z
 ---
 
@@ -33,3 +33,7 @@ On 2026-11-27 the owner asked that files opened from the Files panel show Markdo
 - In a scratch app home, a `.md` file clicked in Files shows rendered headings, lists and code; Source shows the editable text; switching back shows unsaved edits rendered.
 - A local `.png`, `.jpg` or `.svg` clicked in Files shows the image; a remote one shows a message.
 - `npm test` in `plugins/editor` is green.
+
+### Outcome
+
+Shipped in #19 (8e291ce). A Markdown file opens in Preview (`TextView.markdown`) with a Preview / Source switch that survives a Reload; a local image is copied (staged, then renamed) into `<app home>/editor-preview/` and drawn fitted to the pane, and a remote image shows a notice. `node --test` in plugins/editor is green. Not verified in the app: Preview scrolling, Cmd+S while Preview is shown, the image fit, and `npm run typecheck` (TypeScript could not run on the Linux machine used).

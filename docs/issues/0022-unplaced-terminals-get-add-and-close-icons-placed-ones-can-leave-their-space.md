@@ -2,7 +2,7 @@
 type: Issue
 title: Unplaced terminals get add and close icons; placed ones can leave their space
 description: Replaces the Unplaced popup's ranked list of spaces with one item that adds the terminal to the shown space.
-status: open
+status: closed
 timestamp: 2026-11-28T02:20:43Z
 ---
 
@@ -31,3 +31,7 @@ timestamp: 2026-11-28T02:20:43Z
 - With a local space shown, a click on a local Unplaced terminal shows "Add to <name>"; choosing it labels the terminal, it leaves Unplaced, and the space is selected.
 - With the shown space on another machine, the popup shows the explanatory item and changes nothing.
 - `node --test mods` passes.
+
+### Outcome
+
+Shipped in #19 (8e291ce). Unplaced rows carry `+` (labels the terminal into the shown space; hidden across machines or with no shown space) and `x` (`terminal.kill`); the popup of spaces and `placeOptions` are gone; a placed terminal's pane menu offers "Remove from space". `node --test mods` is green (214). Not verified: the icons and actions on screen in the owner's app.
