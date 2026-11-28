@@ -4,6 +4,10 @@
 
 * [0001 — Workspace switcher in the sidebar](0001-workspace-switcher-in-the-sidebar.md) - open
 * [0018 — Install test needs herdr.d.ts in the real app home](0018-install-test-needs-herdr-d-ts-in-the-real-app-home.md) - open
+* [0019 — Changes and Files move to a stack of views in the left sidebar](0019-changes-and-files-move-to-a-stack-of-views-in-the-left-sidebar.md) - open
+* [0020 — Open files show Markdown rendered and images](0020-open-files-show-markdown-rendered-and-images.md) - open
+* [0021 — Diff pane in split view with syntax colors, connector band and overview ruler](0021-diff-pane-in-split-view-with-syntax-colors-connector-band-and-overview-ruler.md) - open
+* [0022 — Unplaced terminals get add and close icons; placed ones can leave their space](0022-unplaced-terminals-get-add-and-close-icons-placed-ones-can-leave-their-space.md) - open
 
 ## Closed
 
